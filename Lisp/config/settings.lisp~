@@ -1,0 +1,1816 @@
+
+;;; -*- Mode: LISP; Package: USER; Base: 10. -*-
+;;;
+;#+:ALLEGRO (in-package :user)
+#+:SBCL (in-package :common-lisp-user)
+
+(defparameter *do-not-trade* '(20170101 20170116 20170220 20170414 20170529 20170703 20170704 20170904 20171123 20171124 20171222 20171225
+                               20180101 20180115 20180219 20180330 20180528 20180703 20180704 20180903 20181122 20181123 20181224 20181225
+                               20190101 20190121 20190218 20190419 20190527 20190703 20190704 20190902
+                               20191128 20191129 20191224 20191225 20200101 20200120 20200217 20200410 20200525 20200702 20200703
+                              ))
+
+
+(defparameter *swing-features1* '(1 2 3 5 8 12))
+;(defparameter *swing-features1* '(1 5 6 3 10 13))
+(defparameter *swing-features* '(1 4 3 8 10 11 12))
+(defparameter *counter-swing-features* '(1 2 14 5));'(1 13 14 8 12 5))
+(defparameter *features-audusd* '(1 11 8 5)) ;'(1 3 14 7 4))
+
+(defparameter *features-usdcad* '(1 13 2));(1 8 9 4))
+(defparameter *features-usdchf* '(1 2 11 5));'(1 14 2 9)) 
+(defparameter *features-usdjpy* '(1 13 3 6 2))
+
+(defparameter *features-eurusd* '(1 7 4 2));'(1 3 5 10 4))
+(defparameter *features-gbpusd* '(1 11 3 5));'(1 8 3 13 5))
+(defparameter *features-nzdusd* '(1 8 14));'(1 6 3 14 4))
+
+
+(defparameter *features-eurjpy* '(1 14 13 7));'(1 3 14 4 10))
+
+(defparameter *features-gbpjpy* '(1 7 13 14));'(1 2 3 13 6))
+(defparameter *features-s&p* '(1 10 13 14 4))
+
+(defparameter *qswing-features* '(1 2 3 10 12 8))
+
+(defparameter *dubaiswing-features* '(1 5 6 7 13 ))
+
+;;;;for SCORE STARTER
+(defparameter *day-features3* '(1 2 3 14 10 7 12 9));;;with 33 markets
+(defparameter *features-sectors31* '(1 6 14 3 9 12));;with first 4 sectors
+(defparameter *features-sectors32* '(1 2 14 7 13 10 9 12));;with second 2 sectors
+;(defparameter *day-features3* '(1 2 6 3 8 9 4 12 7 ));; 26 mkts
+(defparameter *features-interest-rates3* '(1 14 8 13 10 12 9))
+(defparameter *features-indexes3* '(1 3 6 14 11 7 8))
+(defparameter *features-dowjones3* '(1 6 3 9 7))
+(defparameter *features-softs3* '(1 14 5 10 7 13 4))
+(defparameter *features-cocoa3* '(1 13 9 5 10 7))
+(defparameter *features-sugar3* '(1 14 5 8 7 9))
+(defparameter *features-coffee3* '(1 14 10 12 7 4 9))
+(defparameter *features-cotton3* '(1 13 14 7 9 12))
+(defparameter *features-grains3* '(1 14 3 13 12 7 10 9 11))
+(defparameter *features-soybeans3* '(1 3 14 10 12 7 9))
+(defparameter *features-soymeal3* '(1 14 13 11 12 4))
+(defparameter *features-soyoil3* '(1 6 3 14 4))
+(defparameter *features-wheat3* '(1 5 14 11 4 13 7))
+(defparameter *features-crude-oil3* '(1 14 10 13 12 7))
+(defparameter *features-rbob3* '(1 14 5 9 13 7))
+(defparameter *features-s&p3* '(1 6 14 9 7 12))
+(defparameter *features-nikkei3* '(1 7 3 13 14))
+(defparameter *features-nasdaq3* '(1 3 7 10 12 4))
+(defparameter *features-us-bonds3* '(1 14 8 13 10 12 9))
+(defparameter *features-ty-notes3* '(1 3 11 12 13  9))
+(defparameter *features-livecattle3* '(1 6 13 11 12 4))
+(defparameter *features-silver3* '(1 6 14 10 9))
+(defparameter *features-copper3* '(1 14 3 11 12))
+(defparameter *features-others3* '(1 2 3 8 9 4 12 7 10))
+(defparameter *features-currencies3* '(1 14 3 12 5 9 11 7))
+(defparameter *day-features2c* '(1 2 10 8 9 6 11 12 3)) ;;11 mkts EPICC
+;(defparameter *day-features2c* '(1 3 9 13 6 12 4 5)) ;;11 mkts EPICC
+;(defparameter *day-features2c* '(1 10 6 3 13 8 9 12)) ;;11 mkts EPICC WH
+
+;;;FOR EPIC RETAIL
+(defparameter *day-features2* '(1 2 5 10 6 11 7 9)) ;;33 mkts 1/22/2017
+;(defparameter *day-features2* '(1 2 10 3 13 8 7 12)) ;;;24 mkts
+;(defparameter *day-features2* '(1 10 7 6 3 2)) ;;;20 mkts
+;(defparameter *day-features2* '(1 2 3 5 13 14 8)) ;;24 mkts
+
+;(defparameter *dubai-features2* '(1 11 9 8 10 12 5)) 
+(defparameter *dubai-features2* '(1 14 12 3 2)) 
+(defparameter *dubai-features* '(1 14 11 5 6 9)) 
+
+(defparameter *equity-features2* '(1 9 7 8 6 5 11 10)) ;;33 mkts
+;(defparameter *equity-features2* '(1 14 8 7 6 11)) ;;34 mkts
+
+(defparameter *forex-features2* '(1 10 3 5 8 6 2 13 12 4)) ;;;14 markets
+;(defparameter *forex-features2* '(1 2 10 11 4 3 9 12)) ;;;9  mkts
+;(defparameter *forex-features2* '(1 2 8 3 5 10 14 4 6)) ;;;9  mkts
+
+(defparameter *meats-features2m* '(1 6 7 5 4 2))
+
+;;;FOR FORE 
+;(defparameter *day-features4* '(1 6 9 5 10 14 13 11 3 8 2 12 7));;;32 markets
+
+(defparameter *day-features4* '(1 3 7 13 2 4));micro-list* ;'(1 3 9 12 13));;;32 markets
+(defparameter *features-indexes4* '(1 2 5 10 7 4 13 14 8 6))
+(defparameter *features-us-bonds4* '(1 2 13 4 8 3 6))
+(defparameter *features-interest-rates4* '(1 2 4 8 7 14 12 9))
+(defparameter *features-metals4* '(1 2 8 6 10 4 3 14))
+(defparameter *features-energies4* '(1 2 11 8 12 14 3 4))
+(defparameter *features-softs4* '(1 2 8 4 6 3 14 5))
+(defparameter *features-grains4* '(1 2 6 4 8 3 10 12))
+(defparameter *features-meats4* '(1 2 6 8 13 14 3 4))
+(defparameter *features-currencies4* '(1 2 3 12 9))
+;(defparameter *day-features4* '(1 14 3 2 13 12 6));;;22 markets
+(defparameter *day-features4s* '(1 3 8 14 5 9 12));;;26 markets
+;(defparameter *day-features4s* '(1 4 9 13 11 8 10));;;26 markets
+(defparameter *day-features4x* '(1 13 14 4 10 2 ))
+;(defparameter *day-features4x* '(1 3 6 9 4 11 12 7 8 5 13 10 14 2))
+(defparameter *contra-features* '(1 11 10 6 4 12 2 ))
+;(defparameter *exitpoints-features* '(1 2 9 3 7 6 4))
+(defparameter *exitpoints-features* '(1 2 10 11 7 8 6))
+(defparameter *dubai-features5* '(1 6 7 5 4 2))
+(defparameter *objective-reward* .6667)
+;;;;
+(defparameter *ratio* .95);;changed  to median on 7/10/11
+(defparameter *ratio-swing* .90);; changed from 1.2 on 10/24/09
+(defparameter *posdev* .325)
+(defparameter *posdev-swing* .47)
+(defparameter *max-day-risk* 1900);;changed from 1350 6/23/08
+
+(defparameter *max-swing-risk* 2000);;changed from 2000 6/23/08
+(defparameter *max-dubaiswing-risk* 1250)
+(defparameter *max-position-risk* 9000)
+
+(defparameter *reward-risk-ratio* .6)
+(defparameter *reward-risk-ratio-swing* .6)
+(defparameter *min-reward-risk-ratio-position* .20)
+(defparameter *stop-loss-day* 1.0557) ;for day trades 01/18/14
+(defparameter *stop-loss-swing* 1.0557) ;for swing trades
+(defparameter *stop-loss-4* .382) ;for Edge trades
+(defparameter *stop-loss-4x* .382) ;for swing trades
+(defparameter *stop-loss-position* 1.382) ;for position trades
+(defparameter *objective-factor* 2.618);;;objective for day-trades 7/14/11
+(defparameter *objective-factor-swing* 4.236);;;objective for swing-trades
+(defparameter *objective-factor-position* 6.854);;;objective for position-trades
+(defparameter *entry-factor* .764);; for day-trades
+(defparameter *entry-factor2* .3333);;;for  epic trades
+(defparameter *entry-factor-swing* 1.3333);;for swing-trades
+(defparameter *entry-factor-position* 2.618) ;;for position-trades
+
+(defparameter *out-of-sample* nil)
+(defparameter *position-trade-warehouse1* (make-hash-table :test #'equal))
+(defparameter *swing-trade-warehouse1* (make-hash-table :test #'equal))
+(defparameter *day-trade-warehouse1* (make-hash-table :test #'equal))
+(defparameter *day-trade-warehouse3* (make-hash-table :test #'equal))
+(defvar *stocks* nil)
+(defparameter *qty* 1);;;this is the quantity to multiply the index-point-value by
+(defparameter *commission* 6);;;for commission slippage and vendor fee
+
+(defparameter *pips-slippage* 6)
+
+(defparameter *min-day-expected-value* 70)
+(defparameter *min-swing-expected-value* 100)
+(defparameter *min-dubaiswing-expected-value* 40)
+(defparameter *min-epic-expected-value* 70)
+(defparameter *min-dubai-expected-value* 20)
+(defparameter *min-fore-expected-value* 100)
+(defparameter *min-equity-expected-value* 100)
+;;;the config file for the data is in the *database-upper-dir*  directory
+;;;the file is    index.cfg    ;  INDX-CFG.LSP
+
+(defparameter *data-read-dir*    nil)
+
+;#+:ALLEGRO (defparameter *database-upper-dir* "/home/mk-data/")
+;#+:SBCL (defparameter *database-upper-dir* "c:/users/ep-da/mk-data/")
+
+(defparameter *database-upper-dir* "c:/users/ep-da/mk-data/")
+#+:ALLEGRO (defparameter *output-upper-dir* "/home/mk-data/exitpoints/")
+#+:SBCL (defparameter *output-upper-dir* "c:/users/ep-da/exitpoints/")
+#+:SBCL (defparameter *test-output-upper-dir* "c:/users/ep-da/exitpoints/test/")
+#+:SBCL (defparameter *upper-dir-warehouse* "c:/users/ep-da/mk-data/warehouse/")
+#+:SBCL (defparameter *daily-output-dir* "exitpoints/daily-out/")
+#+:SBCL (defparameter *ninja-output-dir* "exitpoints/ninja/")
+;;;THESE ARE USER OPERATIONAL CHOICES
+;;;
+;;; ;;;David Register changed the end times to
+;;;Central time on 8/22/13
+;;;These are for Ninja
+(defparameter *market-times-list*
+  '(
+;    (dj.d1b "8:20" "13:15") ;holiday
+;    (sp.d1b "9:30" "13:15")
+;    (nd.d1b "9:30" "13:15")
+;    (ru.d1b "9:30" "13:15")
+;    (nk.d1b "9:00" "13:15")
+    (dj.d1b "11:00:00 PM" "3:01:00 PM")
+    (sp.d1b "11:00:00 PM" "3:01:00 PM")
+    (nd.d1b "11:00:00 PM" "3:01:00 PM")
+    (ru.d1b "11:00:00 PM" "3:01:00 PM")
+    (nk.d1b "11:00:00 PM" "3:01:00 PM")
+
+;    (ty.d1b "8:20" "13:00") ;holiday
+;    (us.d1b "8:20" "13:00")
+     (ty.d1b "11:00:00 PM" "1:58:00 PM")
+     (us.d1b "11:00:00 PM" "1:58:00 PM")
+
+;    (gc.d1b "8:20" "12:30") ;holiday
+;    (si.d1b "8:25" "12:25")
+;    (cp.d1b "8:10" "12:00")
+    (gc.d1b "11:00:00 PM" "12:28:00 PM")
+    (si.d1b "11:00:00 PM" "12:23:00 PM")
+    (cp.d1b "11:00:00 PM" "11:58:00 PM")
+    (pl.d1b "11:00:00 PM" "11:58:00 PM")
+    (pa.d1b "11:00:00 PM" "11:58:00 PM")
+
+;    (ad.d1b "2:00" "13:00") ;holiday
+;    (bp.d1b "2:00" "13:00")
+;    (cd.d1b "2:00" "13:00")
+;    (e1.d1b "2:00" "13:00")
+;    (jy.d1b "2:00" "13:00")
+;    (sf.d1b "2:00" "13:00")
+    (ad.d1b "11:00:00 PM" "1:58:00 PM")
+    (bp.d1b "11:00:00 PM" "1:58:00 PM")
+    (cd.d1b "11:00:00 PM" "1:58:00 PM")
+    (e1.d1b "11:00:00 PM" "1:58:00 PM")
+    (jy.d1b "11:00:00 PM" "1:58:00 PM")
+    (sf.d1b "11:00:00 PM" "1:58:00 PM")
+    (mx.d1b "11:00:00 PM" "1:58:00 PM")
+    (nz.d1b "11:00:00 PM" "1:58:00 PM")
+    (dinr.d1b "11:00:00 PM" "1:58:00 PM")
+
+;    (cl.d1b "9:00" "13:30") ;holiday
+;    (ho.d1b "9:00" "13:30")
+;    (hu.d1b "9:00" "13:30")
+;    (ng.d1b "9:00" "13:30")
+    (cl.d1b "11:00:00 PM" "1:28:00 PM")
+    (ho.d1b "11:00:00 PM" "1:28:00 PM")
+    (hu.d1b "11:00:00 PM" "1:28:00 PM")
+    (ng.d1b "11:00:00 PM" "1:28:00 PM")
+
+;    (ct.d1b "8:00" "13:00")
+;    (cc.d1b "8:00" "13:00")
+;    (cf.d1b "8:00" "13:00")
+;    (oj.d1b "8:00" "13:00")
+;    (su.d1b "8:00" "13:00")
+
+    (ct.d1b "11:00:00 PM" "1:16:00 PM")
+    (cc.d1b "3:00:00 AM" "12:26:00 PM")
+    (cf.d1b "2:30:00 AM" "12:26:00 PM")
+    (oj.d1b "11:00:00 PM" "1:41:00 PM")
+    (su.d1b "1:30:00 AM" "11:56:00 PM")
+
+;    (c.d1b "10:30" "13:00")  ;holiday
+;    (s.d1b "10:30" "13:00")
+;    (bo.d1b "10:30" "13:00")
+;    (sm.d1b "10:30" "13:00")
+;    (w.d1b "10:30" "13:00")
+    (c.d1b "11:00:00 PM" "1:14:00 PM")
+    (s.d1b "11:00:00 PM" "1:14:00 PM")
+    (bo.d1b "11:00:00 PM" "1:14:00 PM")
+    (sm.d1b "11:00:00 PM" "1:14:00 PM")
+    (w.d1b "11:00:00 PM" "1:14:00 PM")
+
+;    (lc.d1b "10:05" "13:00") ;holiday
+;    (lh.d1b "10:10" "13:00")
+    (lc.d1b "9:05:00 PM" "12:55:00 PM")
+    (lh.d1b "9:05:00 AM" "12:55:00 PM")
+
+
+    (aud.d3b "5:00:00 PM" "3:00:00 PM")
+    (gbp.d3b "5:00:00 PM" "3:00:00 PM")
+    (cad.d3b "5:00:00 PM" "3:00:00 PM")
+    (eur.d3b "5:00:00 PM" "3:00:00 PM")
+    (jpy.d3b "5:00:00 PM" "3:00:00 PM")
+    (chf.d3b "5:00:00 PM" "3:00:00 PM")
+
+    (chfjpy.d3b "5:00:00 PM" "3:00:00 PM")
+
+    (euraud.d3b "5:00:00 PM" "3:00:00 PM")
+    (eurgbp.d3b "5:00:00 PM" "3:00:00 PM")
+    (eurjpy.d3b "5:00:00 PM" "3:00:00 PM")
+    (eurchf.d3b "5:00:00 PM" "3:00:00 PM")
+
+    (gbpjpy.d3b "5:00:00 PM" "3:00:00 PM")
+
+    ))
+
+;;;times are in 24 hour format using Pacific time zone
+;;;this are the exit times
+;;;softs and grains are four minutes before end of session
+;;;stocks are 1 minute after the end of the index trading
+;;;others are 2 minutes prior to end of session
+(defparameter *cannon-market-times-list*
+  '(
+;    (dj.d1b "8:20" "10:01:00") ;holiday
+;    (sp.d1b "9:30" "10:01:00")
+;    (nd.d1b "9:30" "10:01:00")
+;    (ru.d1b "9:30" "10:01:00")
+;    (nk.d1b "9:00" "10:01:00")
+    (dj.d1b "20:00:00" "13:01:00")
+    (sp.d1b "20:00:00" "13:01:00")
+    (nd.d1b "20:00:00" "13:01:00")
+    (ru.d1b "20:00:00" "13:01:00")
+    (nk.d1b "20:00:00" "13:01:00")
+
+;    (ty.d1b "8:20" "10:01:00") ;holiday
+;    (us.d1b "8:20" "10:01:00")
+     (ty.d1b "20:00:00" "11:58:00")
+     (us.d1b "20:00:00" "11:58:00")
+
+;    (gc.d1b "8:20" "10:40:00") ;holiday
+;    (si.d1b "8:25" "10:40:00")
+;    (cp.d1b "8:10" "10:40:00")
+    (gc.d1b "20:00:00" "11:58:00") ;"10:28:00")
+    (si.d1b "20:00:00" "11:58:00") ;"10:23:00")
+    (cp.d1b "20:00:00" "11:58:00") ;09:58:00")
+    (pa.d1b "20:00:00" "11:58:00") ;"10:28:00")
+    (pl.d1b "20:00:00" "11:58:00") ;"10:28:00")
+;    (ad.d1b "2:00" "13:00:00") ;holiday
+;    (bp.d1b "2:00" "13:00:00")
+;    (cd.d1b "2:00" "13:00:00")
+;    (e1.d1b "2:00" "13:00:00")
+;    (jy.d1b "2:00" "13:00:00")
+;    (sf.d1b "2:00" "13:00:00")
+    (ad.d1b "20:00:00" "11:58:00")
+    (bp.d1b "20:00:00" "11:58:00")
+    (cd.d1b "20:00:00" "11:58:00")
+    (e1.d1b "20:00:00" "11:58:00")
+    (jy.d1b "20:00:00" "11:58:00")
+    (sf.d1b "20:00:00" "11:58:00")
+    (mx.d1b "20:00:00" "11:58:00")
+    (nz.d1b "20:00:00" "11:58:00")
+
+    (dinr.d1b "20:00:00" "11:58:00")
+;    (cl.d1b "9:00" "10:40:00") ;holiday
+;    (ho.d1b "9:00" "10:40:00")
+;    (hu.d1b "9:00" "10:40:00")
+;    (ng.d1b "9:00" "10:40:00")
+    (cl.d1b "20:00:00" "11:28:00")
+    (ho.d1b "20:00:00" "11:28:00")
+    (hu.d1b "20:00:00" "11:28:00")
+    (ng.d1b "20:00:00" "11:28:00")
+
+
+;    (ct.d1b "8:00" "9:56:00")
+;    (cc.d1b "8:00" "9:56:00")
+;    (cf.d1b "8:00" "9:56:00")
+;    (oj.d1b "8:00" "9:56:00")
+;    (su.d1b "8:00" "9:56:00")
+
+    (ct.d1b "20:00:00" "11:16:00")
+    (cc.d1b "1:00:00" "10:26:00")
+    (cf.d1b "0:30:00" "10:26:00")
+    (oj.d1b "20:00:00" "11:41:00")
+    (su.d1b "23:30:00" "09:56:00")
+
+;    (c.d1b "10:30" "10:00:00")  ;holiday
+;    (s.d1b "10:30" "10:00:00")
+;    (bo.d1b "10:30" "10:00:00")
+;    (sm.d1b "10:30" "10:00:00")
+;    (w.d1b "10:30" "10:00:00")
+    (c.d1b "20:00:00" "11:14:00")
+    (s.d1b "20:00:00" "11:14:00")
+    (bo.d1b "20:00:00" "11:14:00")
+    (sm.d1b "20:00:00" "11:14:00")
+    (w.d1b "20:00:00" "11:14:00")
+
+;    (lc.d1b "10:05" "13:00") ;holiday
+;    (lh.d1b "10:10" "13:00")
+    (lc.d1b "7:05:00" "10:58:00")
+    (lh.d1b "7:05:00" "10:58:00")
+
+    (aud.d3b "16:00:00" "12:56:00")
+    (gbp.d3b "16:00:00" "12:56:00")
+    (cad.d3b "16:00:00" "12:56:00")
+    (eur.d3b "16:00:00" "12:56:00")
+    (jpy.d3b "16:00:00" "12:56:00")
+    (chf.d3b "16:00:00" "12:56:00")
+    (eurjpy.d3b "16:00:00" "12:56:00")
+    (gbpjpy.d3b "16:00:00" "12:56:00")
+))
+
+;;;times are in 24 hour format using Central time zone
+;;;the first time is the "release time"
+(defparameter *foremost-market-times-list*
+  '(
+;    (dj.d1b "10:20" "12:01:00") ;holiday
+;    (sp.d1b "11:30" "12:01:00")
+;    (nd.d1b "11:30" "12:01:00")
+;    (ru.d1b "11:30" "12:01:00")
+;    (nk.d1b "11:00" "12:01:00")
+
+    (dj.d1b "6:01:00" "14:58:00");;regular
+    (sp.d1b "6:01:00" "14:58:00")
+    (nd.d1b "6:01:00" "14:58:00")
+    (ru.d1b "6:01:00" "14:58:00")
+    (nk.d1b "6:01:00" "14:58:00")
+
+;    (ty.d1b "19:01:00" "11:57:00") ;holiday
+;    (us.d1b "19:01:00" "11:57:00")
+
+     (ty.d1b "6:01:00" "14:57:00");;regular
+     (us.d1b "6:01:00" "14:57:00");;;trading ends at 4:00 PM CT
+
+;    (gc.d1b "10:20" "12:40:00") ;holiday
+;    (si.d1b "10:25" "12:40:00")
+;    (cp.d1b "10:10" "12:40:00")
+
+    (gc.d1b "6:01:00" "13:57:00") ;"12:28:00") regular
+    (si.d1b "6:01:00" "13:57:00") ;"12:23:00")
+    (cp.d1b "6:01:00" "13:57:00") ;"11:58:00")
+    ;(pa.d1b "18:01:00" "13:58:00") ;"11:58:00")
+    (pa.d1b "6:01:00" "11:58:00") 
+    (pl.d1b "6:01:00" "12:27:00") ;"11:58:00")
+ ;   (ad.d1b "19:01:00" "11:57:00") ;holiday
+ ;   (bp.d1b "19:01:00" "11:57:00")
+ ;   (cd.d1b "19:01:00" "11:57:00")
+ ;   (e1.d1b "19:01:00" "11:57:00")
+ ;   (jy.d1b "19:01:00" "11:57:00")
+ ;   (sf.d1b "19:01:00" "11:57:00")
+
+    (ad.d1b "6:01:00" "13:57:00");;regular
+    (bp.d1b "6:01:00" "13:57:00")
+    (cd.d1b "6:01:00" "13:57:00")
+    (e1.d1b "6:01:00" "13:57:00")
+    (jy.d1b "6:01:00" "13:57:00")
+    (sf.d1b "6:01:00" "13:57:00")
+    (mx.d1b "6:01:00" "13:57:00")
+    (nz.d1b "6:01:00" "13:57:00")
+
+    (dinr.d1b "6:01:00" "13:58:00")
+;    (cl.d1b "11:00" "11:57:00") ;holiday
+;    (ho.d1b "11:00" "11:57:00")
+;    (hu.d1b "11:00" "11:57:00")
+;    (ng.d1b "11:00" "11:57:00")
+
+    (cl.d1b "6:01:00" "13:58:00")
+    (ho.d1b "6:01:00" "13:58:00")
+    (hu.d1b "6:01:00" "13:58:00")
+    (ng.d1b "6:01:00" "13:58:00")
+
+
+;    (ct.d1b "10:00" "11:55:00");;holiday
+;    (cc.d1b "10:00" "11:55:00")
+;    (cf.d1b "10:00" "11:55:00")
+;    (oj.d1b "10:00" "11:55:00")
+;    (su.d1b "10:00" "11:55:00")
+
+    (oj.d1b "6:01:00" "12:56:00") ;;regular
+    (ct.d1b "6:01:00" "13:16:00")
+    (cc.d1b "6:01:00" "12:26:00")
+    (cf.d1b "6:01:00" "12:26:00")
+    (su.d1b "6:01:00" "11:56:00")
+
+;    (cc.d1b "7:05:00" "12:26:00");;; Late holiday opening 12/27/2016
+;    (cf.d1b "7:05:00" "12:26:00")
+;    (su.d1b "7:05:00" "11:56:00")
+
+;    (c.d1b "12:30" "12:00:00")  ;holiday
+;    (s.d1b "12:30" "12:00:00")
+;    (bo.d1b "12:30" "12:00:00")
+;    (sm.d1b "12:30" "12:00:00")
+;    (w.d1b "12:30" "12:00:00")
+
+    (c.d1b "6:01:00" "13:15:00") ;regular
+    (s.d1b "6:01:00" "13:15:00")
+    (bo.d1b "6:01:00" "13:15:00")
+    (sm.d1b "6:01:00" "13:15:00")
+    (w.d1b "6:01:00" "13:15:00")
+
+;    (lc.d1b "12:05" "11:55:00") ;holiday
+;    (lh.d1b "12:10" "11:55:00")
+    (lc.d1b "6:01:00" "12:57:00");;regular
+    (lh.d1b "8:31:00" "12:57:00")
+
+    (aud.d3b "6:01:00" "14:57:00")
+    (gbp.d3b "6:01:00" "14:57:00")
+    (cad.d3b "6:01:00" "14:57:00")
+    (eur.d3b "6:01:00" "14:57:00")
+    (jpy.d3b "6:01:00" "14:57:00")
+    (chf.d3b "6:01:00" "14:57:00")
+    (nzdusd.d3b "6:01:00" "14:57:00")
+    (mxn.d3b "6:01:00" "14:57:00")
+    (usdzar.d3b "6:01:00" "14:57:00")
+
+    (chfjpy.d3b "6:01:00" "14:57:00")
+
+    (euraud.d3b "6:01:00" "14:57:00")
+    (eurgbp.d3b "6:01:00" "14:57:00")
+    (eurjpy.d3b "6:01:00" "14:57:00")
+    (eurchf.d3b "6:01:00" "14:57:00")
+    (gbpjpy.d3b "6:01:00" "14:57:00")
+
+
+))
+
+;;;times are in 24 hour format using Dubai UTC time zone
+;;;the first time is the "release time"
+;;;;
+(defparameter *mt-market-times-list*
+  '(
+;For Cental Standard time in Texas
+;    (dinr.d1b "04:03:00" "18:00:00");;;add 1 hour when daylight savings time in effect
+;    (dbp.d1b "04:03:00" "18:00:00")
+;    (deu.d1b "04:03:00" "18:00:00") 
+;    (ddg.d1b "04:03:00" "18:00:00")
+;    (dds.d1b "04:03:00" "18:00:00")
+;    (dbsx.d1b "04:03:00" "16:00:00")
+
+;For daylight savings time in Texas
+    (dinr.d1b "05:03:00" "19:00:00");;;add 1 hour when daylight savings time in effect
+    (dbp.d1b "05:03:00" "19:00:00")
+    (deu.d1b "05:03:00" "19:00:00") 
+    (ddg.d1b "05:03:00" "19:00:00")
+    (dds.d1b "05:03:00" "19:00:00")
+    (dbsx.d1b "05:03:00" "19:00:00")
+
+;;;;Forex trades from 6:00 PM (18:00) to 5:00 PM (17:00) the next day. in NEW YORK TIME
+;;;;UT time is 4 hours ahead during daylight savings
+;;;;UT time is 5 hours ahead during standard CT time 
+;For Cental daylight savings time 
+   (aud.d3b  "22:00:00" "20:28:00")
+    (gbp.d3b  "22:00:00" "20:28:00")
+    (cad.d3b  "22:00:00" "20:28:00")
+    (eur.d3b  "22:00:00" "20:28:00")
+    (jpy.d3b  "22:00:00" "20:28:00")
+    (chf.d3b  "22:00:00" "20:28:00")
+    (inr.d3b  "22:00:00" "20:28:00")
+    (eurgbp.d3b  "22:00:00" "20:28:00")
+    (eurjpy.d3b  "22:00:00" "20:28:00")
+    (gbpjpy.d3b  "22:00:00" "20:28:00")
+    (nzdusd.d3b  "22:00:00" "20:28:00")
+    (usdzar.d3b  "22:00:00" "20:28:00")
+    (brl.d3b  "22:00:00" "20:28:00")
+    (rub.d3b  "22:00:00" "20:28:00")
+    (mxn.d3b  "22:00:00" "20:28:00")
+    (usdhkd.d3b  "22:00:00" "20:28:00")
+
+;For daylight standard time 
+;   (aud.d3b  "23:00:00" "22:28:00")
+;    (gbp.d3b  "23:00:00" "22:28:00")
+;    (cad.d3b  "23:00:00" "22:28:00")
+;    (eur.d3b  "23:00:00" "22:28:00")
+;    (jpy.d3b  "23:00:00" "22:28:00")
+;    (chf.d3b  "23:00:00" "22:28:00")
+;    (inr.d3b  "23:00:00" "22:28:00")
+;    (eurgbp.d3b  "23:00:00" "22:28:00")
+;    (eurjpy.d3b  "23:00:00" "22:28:00")
+;    (gbpjpy.d3b  "23:00:00" "22:28:00")
+;    (nzdusd.d3b  "23:00:00" "22:28:00")
+;    (usdzar.d3b  "23:00:00" "22:28:00")
+;    (brl.d3b  "23:00:00" "22:28:00")
+;    (rub.d3b  "23:00:00" "22:28:00")
+;    (mxn.d3b  "23:00:00" "22:28:00")
+;    (usdhkd.d3b  "23:00:00" "22:28:00")
+
+))
+
+;;;number of ticks to allow for bid ask spread in Dubai markets
+(defparameter *dubai-spread-list*
+  '(
+    (dinr.d1b  5)
+    (dbp.d1b 5)
+    (deu.d1b 5)
+    (ddg.d1b 6)
+    (dds.d1b 5)
+    (dbsx.d1b 25))) 
+
+(defparameter *mt-spread-list*
+  '(
+    (dinr.d1b  5)
+    (dbp.d1b 5)
+    (deu.d1b 5)
+    (ddg.d1b 6)
+    (dds.d1b 5)
+    (dbsx.d1b 25)
+    
+    (aud.d3b 4)
+    (gbp.d3b 4)
+    (cad.d3b 4)
+    (eur.d3b 4)
+    (jpy.d3b 4)
+    (chf.d3b 4)
+    (inr.d3b 4)
+    (eurgbp.d3b 5)
+    (eurjpy.d3b 5)
+    (gbpjpy.d3b 5)
+    (nzdusd.d3b 5)
+    (usdhkd.d3b 5)
+    (mxn.d3b 5)
+    (rub.d3b 5)
+    (brl.d3b 5)
+    (usdzar.d3b 5)
+
+)) 
+(defparameter *straddle-list* '(ag.d3b apld.d3b intc.d3b iren.d3b onds.d3b sofi.d3b smr.d3b
+                               ibit.d3b slv.d3b soxl.d3b tqqq.d3b ung.d3b))
+(defparameter *straddle-list1* '(nd.d1b sp.d1b us.d1b cl.d1b ng.d1b))
+(defparameter *longevity-list* '(bioa.d3b crsp.d3b beam.d3b ntla.d3b rxrx.d3b)) 
+(defparameter *space-list* '(asts.d3b bksy.d3b irdm.d3b ldos.d3b lunr.d3b pl.d3b rcat.d3b rdw.d3b rklb.d3b 
+			     tsat.d3b vsat.d3b ));sats or echo
+(defparameter *micro-list* '(dj.d1b nd.d1b sp.d1b ru.d1b gc.d1b si.d1b cl.d1b ng.d1b c.d1b s.d1b w.d1b e1.d1b jy.d1b us.d1b));s.d1b c.d1b))
+(defparameter *aim-list* '(sp.d1b nd.d1b cl.d1b us.d1b sp.d1b nd.d1b cl.d1b))
+(defparameter *ff-list* '(alks.d3b amsc.d3b  aroc.d3b aten.d3b; ben.d3b btu.d3b cag.d3b
+			  coya.d3b cprx.d3b ;crsp.d3b
+			  ctre.d3b dcth.d3b dnli.d3b;  edit.d3b
+			  ego.d3b eqx.d3b gdyn.d3b et.d3b; hckt.d3b levi.d3b lxfr.d3b
+			  idr.d3b  kgei.d3b kins.d3b; hg.d3b
+		;	 lysdy.d3b 
+                          mir.d3b nage.d3b nuvb.d3b; nvgs.d3b
+			  prop.d3b psix.d3b qbts.d3b  
+                          rxrx.d3b sdgr.d3b ;sdrl.d3b
+			  slm.d3b ;trmlf.d3b
+			  ))
+
+(defparameter *swing-list*
+   '(;ru.d1b nk.d1b
+      dj.d1b sp.d1b nd.d1b ru.d1b
+     
+     gc.d1b si.d1b cp.d1b ;pa.d1b  pl.d1b
+       cl.d1b ng.d1b  us.d1b 
+      e1.d1b ad.d1b bp.d1b cd.d1b jy.d1b sf.d1b
+     ct.d1b cf.d1b su.d1b
+     cc.d1b   
+     c.d1b s.d1b
+     sm.d1b bo.d1b w.d1b
+     lc.d1b lh.d1b     
+    
+          ))
+(defparameter aa (union (append *swing-list* *space-list* *ff-list* *straddle-list*) *longevity-list*))
+
+(defparameter *micro-grains-list* '(c.d1b w.d1b s.d1b))
+
+(defparameter *cfd-list* '(ru.d1b sp.d1b gc.d1b si.d1b cl.d1b ng.d1b cf.d1b s.d1b))
+(defparameter *contra-list* '(nd.d1b ru.d1b ty.d1b gc.d1b si.d1b cp.d1b pl.d1b pa.d1b jy.d1b
+                              cl.d1b ho.d1b hu.d1b ng.d1b ct.d1b cf.d1b cc.d1b su.d1b s.d1b sm.d1b w.d1b lh.d1b))
+
+;;
+(defparameter *triumph21-list* ;; 6/26/2017 markets
+   '( dj.d1b sp.d1b  nk.d1b  ;nk.d1b nd.d1b  
+      us.d1b ;ty.d1b       
+     cp.d1b si.d1b gc.d1b 
+     cl.d1b ho.d1b hu.d1b ng.d1b
+ 
+    ; e1.d1b bp.d1b ;sf.d1b ;jy.d1b  bp.d1b 
+    cf.d1b ct.d1b cc.d1b su.d1b     
+     s.d1b  w.d1b sm.d1b bo.d1b c.d1b
+     lc.d1b
+    ;  lh.d1b
+          ))
+
+
+;;
+;(defparameter *triumph21-list* ;; 6/26/2017 markets
+;   '( dj.d1b sp.d1b  nk.d1b  ;nk.d1b nd.d1b  
+;     ;ty.d1b us.d1b       
+;     cp.d1b si.d1b pl.d1b gc.d1b 
+;     cl.d1b ho.d1b hu.d1b ng.d1b
+; 
+;    ; e1.d1b bp.d1b ;sf.d1b ;jy.d1b  bp.d1b 
+;     ct.d1b cf.d1b ;su.d1b ;cc.d1b ;su.d1b     
+;     s.d1b  ;w.d1b 
+;     sm.d1b 
+;    ; lc.d1b
+;      lh.d1b
+;          ))
+
+;;;
+;(defparameter *triumph21-list* ;; New 1/18/2017
+;   '( dj.d1b  nk.d1b   sp.d1b 
+;     us.d1b       
+;     cp.d1b si.d1b gc.d1b pl.d1b
+;     cl.d1b ho.d1b hu.d1b ng.d1b
+; 
+;     ad.d1b e1.d1b 
+;     ct.d1b cf.d1b  cc.d1b 
+;     
+;     s.d1b w.d1b ;sm.d1b
+;      
+;     lc.d1b  lh.d1b
+;          ))
+
+;(defparameter *triumph11-list* ;;7/18/2017 1/16/2017 day trade list of 11 markets
+;  '(dj.d1b nk.d1b sp.d1b ; nd.d1b nk.d1b 
+;    us.d1b ;ty.d1b
+;   ; si.d1b 
+;    cp.d1b pl.d1b 
+;   ; ng.d1b
+;    ct.d1b cf.d1b
+;    s.d1b sm.d1b w.d1b
+   ; lh.d1b
+ ;   ))
+
+;(defparameter *triumph11-list* ;;7/18/2017 1/16/2017 day trade list of 11 markets
+;  '(dj.d1b nk.d1b sp.d1b ; nd.d1b nk.d1b 
+;    us.d1b ty.d1b
+;   ; si.d1b 
+;    cp.d1b pl.d1b 
+;    ng.d1b
+;    ;ct.d1b
+;    s.d1b sm.d1b ;w.d1b
+;   ; lc.d1b lh.d1b
+;    ))
+
+(defparameter *triumph11-list* ;;NEW 9/9/2017 day trade list of 11 markets
+  '(dj.d1b sp.d1b ;nd.d1b ru.d1b ;sp.d1b
+    us.d1b ;ty.d1b     
+;          si.d1b 
+    cc.d1b ct.d1b su.d1b 
+    c.d1b s.d1b sm.d1b bo.d1b w.d1b 
+    
+    ))
+
+
+;(defparameter *charger-list* ;;NEW STARTER day trade list of 11 markets
+;  '(;dj.d1b nd.d1b  sp.d1b
+;    ru.d1b nk.d1b ;us.d1b
+;     si.d1b
+;      cp.d1b cl.d1b ho.d1b hu.d1b ng.d1b ;e1.d1b c.d1b
+;     s.d1b sm.d1b w.d1b))
+
+(defparameter *charger-list* ;;NEW  day trade list of 12 markets
+  '(dj.d1b cc.d1b ru.d1b ty.d1b  sp.d1b c.d1b sm.d1b lc.d1b))
+
+(defparameter *counter-swing-futures-list* 
+   '( dj.d1b sp.d1b nd.d1b ru.d1b  
+     gc.d1b  cp.d1b
+     ng.d1b 
+     ad.d1b cd.d1b bp.d1b e1.d1b sf.d1b 
+     cf.d1b cc.d1b su.d1b 
+     c.d1b 
+        ));;;ho.d1b ng.d1b hu.d1b cp.d1b
+
+(defparameter *day-warehouse-list* ;;34 markets;; 31
+   '(dj.d1b sp.d1b nd.d1b ru.d1b nk.d1b 
+     ty.d1b us.d1b
+      gc.d1b si.d1b cp.d1b pl.d1b pa.d1b
+     cl.d1b ho.d1b hu.d1b ng.d1b
+    ; sf.d1b e1.d1b ad.d1b cd.d1b jy.d1b bp.d1b ;mx.d1b
+     ct.d1b cf.d1b cc.d1b su.d1b      
+     s.d1b bo.d1b  sm.d1b c.d1b w.d1b 
+    ; lh.d1b lc.d1b
+          ))
+(defparameter *epic-warehouse-list*;; 21 mkts
+   '( dj.d1b sp.d1b 
+      nd.d1b  ru.d1b nk.d1b 
+      gc.d1b 
+      si.d1b cp.d1b pl.d1b pa.d1b
+      cl.d1b ho.d1b hu.d1b ng.d1b
+    ;  ad.d1b sf.d1b jy.d1b
+      ct.d1b cf.d1b  cc.d1b su.d1b 
+      s.d1b  sm.d1b c.d1b w.d1b
+       lh.d1b bo.d1b ;lc.d1b
+          ))
+(defparameter *epic-list* ;;;9 markets
+  '(ru.d1b si.d1b cp.d1b cl.d1b ho.d1b hu.d1b ng.d1b cf.d1b  w.d1b))
+           
+(defparameter *epicc-warehouse-list*
+   '( dj.d1b sp.d1b nd.d1b nk.d1b ru.d1b        
+      ;us.d1b gc.d1b ty.d1b
+      ad.d1b 
+      cd.d1b bp.d1b e1.d1b sf.d1b ;jy.d1b
+      
+       ))
+(defparameter *epicc-list* '(dj.d1b sp.d1b nd.d1b nk.d1b ru.d1b ad.d1b bp.d1b cd.d1b e1.d1b  sf.d1b))
+
+(defparameter *fore-warehouse-list* ;; 20 markets
+   '( sp.d1b nd.d1b ru.d1b nk.d1b 
+      ; us.d1b
+      gc.d1b si.d1b cp.d1b pl.d1b pa.d1b
+      cl.d1b ho.d1b hu.d1b ng.d1b
+      ct.d1b cf.d1b su.d1b cc.d1b 
+      s.d1b  sm.d1b w.d1b c.d1b lh.d1b
+          ))
+(defparameter *edge-swing-list* '(gc.d1b si.d1b cp.d1b pa.d1b pl.d1b
+                            cl.d1b ho.d1b hu.d1b ng.d1b  
+                            cf.d1b cc.d1b su.d1b ct.d1b 
+                            s.d1b sm.d1b bo.d1b c.d1b w.d1b
+                            lc.d1b lh.d1b
+                            ))
+;(defparameter *fore-list* '(dj.d1b sp.d1b nd.d1b ru.d1b cp.d1b pa.d1b cl.d1b ho.d1b hu.d1b
+;                            ct.d1b cf.d1b
+;                            bo.d1b bp.d1b
+;                            w.d1b
+ ;                             ))
+;(defparameter *fore-list* '(sp.d1b nd.d1b ru.d1b gc.d1b cp.d1b pl.d1b pa.d1b cl.d1b ho.d1b hu.d1b
+;                 ;  cf.d1b ct.d1b
+;                   s.d1b w.d1b c.d1b sm.d1b))
+
+
+(defparameter *core-list* '(s.d1b gc.d1b sp.d1b cl.d1b))
+(defparameter *stocks-warehouse-list*
+   '(aa.d3b aapl.d3b amd.d3b bac.d3b bsx.d3b chk.d3b cop.d3b csco.d3b ete.d3b f.d3b fb.d3b fcx.d3b
+     ge.d3b grpn.d3b jcp.d3b hpq.d3b ;c.d3b 
+    intc.d3b kmi.d3b  mu.d3b 
+     msft.d3b pfe.d3b 
+     pbr.d3b qqq.d3b rad.d3b siri.d3b  swn.d3b symc.d3b)); vale.d3b 
+
+(defparameter *stocks-list*
+   '(aa.d3b aapl.d3b alks.d3b aroc.d3b aten.d3b bac.d3b bsx.d3b chk.d3b coya.d3b cprx.d3b ;cop.d3b
+     csco.d3b ego.d3b eqx.d3b ete.d3b f.d3b fb.d3b fcx.d3b
+     gdyn.d3b ge.d3b grpn.d3b ;amd.d3b jcp.d3b hpq.d3b 
+     idr.d3b imux.d3b intc.d3b kgei.d3b kmi.d3b
+      mu.d3b 
+     msft.d3b nage.d3b pbr.d3b pfe.d3b psix.d3b
+     qqq.d3b rad.d3b slm.d3b symc.d3b  )) ;swn.d3b vale.d3b 
+
+(defparameter *dow30-list*
+   '(aapl.d3b axp.d3b ba.d3b cat.d3b csco.d3b
+     cvx.d3b  dis.d3b ge.d3b gs.d3b 
+     hd.d3b ibm.d3b intc.d3b jnj.d3b jpm.d3b 
+     ko.d3b mcd.d3b mmm.d3b mrk.d3b msft.d3b 
+     nke.d3b pfe.d3b pg.d3b trv.d3b unh.d3b
+     utx.d3b v.d3b vz.d3b wmt.d3b xom.d3b))
+
+;;;;Here are 51 of the 100 S&P100 stocks
+(defparameter *SP100-list*
+  '(aapl.d3b abbv.d3b abt.d3b acn.d3b agn.d3b aig.d3b all.d3b amgn.d3b
+     amzn.d3b axp.d3b ba.d3b bac.d3b biib.d3b bk.d3b blk.d3b bmy.d3b 
+     cat.d3b csco.d3b cvx.d3b  dis.d3b f.d3b fb.d3b ge.d3b
+     gs.d3b hd.d3b ibm.d3b intc.d3b jnj.d3b jpm.d3b  kmi.d3b 
+     ko.d3b lmt.d3b mcd.d3b mmm.d3b mo.d3b mrk.d3b msft.d3b nke.d3b
+     pfe.d3b pg.d3b pm.d3b unh.d3b utx.d3b v.d3b vz.d3b wfc.d3b
+     wmt.d3b xom.d3b
+  )
+)
+
+(defparameter *equity-warehouse-list*
+   '(aa.d3b aapl.d3b amat.d3b amd.d3b baba.d3b bac.d3b bsx.d3b chk.d3b cop.d3b csco.d3b
+       ete.d3b f.d3b fb.d3b fcx.d3b
+     ge.d3b grpn.d3b hpq.d3b intc.d3b jcp.d3b jd.d3b  ;c.d3b 
+     kmi.d3b  mu.d3b 
+     msft.d3b nvda.d3b pfe.d3b 
+     pbr.d3b qqq.d3b rad.d3b siri.d3b  swn.d3b symc.d3b t.d3b twtr.d3b)); vale.d3b 
+
+(defparameter *equity-list*
+   '(aa.d3b aapl.d3b amd.d3b bac.d3b bsx.d3b chk.d3b cop.d3b csco.d3b
+      f.d3b  fb.d3b fcx.d3b  grpn.d3b hpq.d3b 
+     intc.d3b jcp.d3b 
+      mu.d3b 
+      pbr.d3b  rad.d3b
+      siri.d3b swn.d3b   )) ;swn.d3b vale.d3b 
+
+
+(defparameter *entry-list* ;;NEW ENTRY day trade list of 11 markets
+  ;  '(dj.d1b nd.d1b nk.d1b ng.d1b ct.d1b cc.d1b c.d1b sm.d1b w.d1b))
+    '( sp.d1b cp.d1b ng.d1b ct.d1b cc.d1b cf.d1b  c.d1b  sm.d1b w.d1b s.d1b lh.d1b))
+
+;;;eleven markets
+(defparameter *forex-list* '(aud.d3b cad.d3b gbp.d3b eur.d3b chf.d3b jpy.d3b ;nzdusd.d3b 
+                          gbpjpy.d3b eurjpy.d3b
+                             )); inr.d3b  rub.d3b brl.d3b ))
+
+(defparameter *forex-warehouse-list* '(aud.d3b cad.d3b gbp.d3b eur.d3b chf.d3b jpy.d3b eurjpy.d3b gbpjpy.d3b 
+                            nzdusd.d3b inr.d3b  mxn.d3b rub.d3b brl.d3b usdzar.d3b))
+(defparameter *forex-trend-list* '(aud.d3b cad.d3b chf.d3b eur.d3b gbp.d3b jpy.d3b gbpjpy.d3b));)); jpy.d3b ))
+
+(defparameter *dubai-list* '(dbp.d1b deu.d1b dinr.d1b  ddg.d1b dbsx.d1b))
+(defparameter *dubai-warehouse-list* '(dinr.d1b deu.d1b dbp.d1b ad.d1b cd.d1b e1.d1b bp.d1b
+                                       jy.d1b sf.d1b gc.d1b ddg.d1b si.d1b dbsx.d1b))
+
+
+(defparameter *swing-warehouse-list*
+   '(  sp.d1b ru.d1b nd.d1b nk.d1b ;dj.d1b
+ ;      us.d1b  ty.d1b
+       gc.d1b  si.d1b  cp.d1b pa.d1b  pl.d1b
+ ;     e1.d1b  cd.d1b sf.d1b jy.d1b ad.d1b
+ ;      bp.d1b  e1.d1b mx.d1b 
+     cl.d1b  hu.d1b ho.d1b  ng.d1b
+     cc.d1b  cf.d1b su.d1b ct.d1b 
+      c.d1b s.d1b sm.d1b w.d1b bo.d1b   
+      lh.d1b  lc.d1b
+          ))
+
+
+
+
+(defparameter *swing-list2*
+   '( dj.d1b sp.d1b nd.d1b ru.d1b nk.d1b
+      ty.d1b us.d1b  
+   ; gc.d1b si.d1b cp.d1b  pl.d1b pa.d1b 
+     ad.d1b bp.d1b cd.d1b e1.d1b jy.d1b sf.d1b mx.d1b
+    ; cl.d1b ho.d1b hu.d1b ng.d1b
+    ; ct.d1b  cc.d1b  cf.d1b su.d1b  
+    ; c.d1b s.d1b bo.d1b sm.d1b  w.d1b   
+    lc.d1b lh.d1b  
+          ))
+
+(defparameter *edge-list*
+   '(dj.d1b sp.d1b nd.d1b 
+     ru.d1b nk.d1b 
+     us.d1b gc.d1b si.d1b cp.d1b
+     cl.d1b ho.d1b hu.d1b ng.d1b
+     e1.d1b ;jy.d1b ad.d1b bp.d1b 
+     ;sf.d1b  ;cc.d1b
+     cc.d1b ct.d1b cf.d1b su.d1b  
+     c.d1b s.d1b  sm.d1b w.d1b bo.d1b
+     lh.d1b  lc.d1b
+          ))
+
+(defparameter *currencies-list*
+   '(ad.d1b bp.d1b cd.d1b e1.d1b jy.d1b mx.d1b  sf.d1b)) ; nz.d1b))
+
+(defparameter *interest-rates-list*
+   '(ty.d1b us.d1b))
+
+(defparameter *indexes-list*
+   '(dj.d1b sp.d1b nd.d1b ru.d1b nk.d1b))
+
+(defparameter *metals-list*
+   '(gc.d1b si.d1b cp.d1b pl.d1b pa.d1b))
+
+(defparameter *energies-list*
+   '(cl.d1b ho.d1b hu.d1b ng.d1b))
+
+(defparameter *softs-list*
+   '(cc.d1b cf.d1b su.d1b ct.d1b));;; removed oj.d1b 2/21/16
+
+(defparameter *ice-list*
+   '(cc.d1b cf.d1b su.d1b ct.d1b oj.d1b))
+
+(defparameter *grains-list*
+    '(c.d1b s.d1b w.d1b bo.d1b sm.d1b))
+
+(defparameter *meats-list* ; nil)
+    '(lc.d1b lh.d1b))
+
+(defparameter *day-list* 
+   '(dj.d1b sp.d1b nd.d1b ru.d1b ;nk.d1b 
+     us.d1b ty.d1b
+     gc.d1b si.d1b cp.d1b pl.d1b pa.d1b
+     cl.d1b ho.d1b hu.d1b ng.d1b
+     cd.d1b e1.d1b ;jy.d1b
+     sf.d1b ad.d1b bp.d1b 
+     cc.d1b ct.d1b cf.d1b  su.d1b  
+     c.d1b s.d1b  sm.d1b bo.d1b w.d1b
+     lc.d1b lh.d1b
+          ))
+
+
+(defparameter *fore-list* '(dj.d1b sp.d1b nd.d1b us.d1b gc.d1b cp.d1b si.d1b cl.d1b lh.d1b))
+                           ; cl.d1b ng.d1b ho.d1b s.d1b))
+;(defparameter *fore-list* (set-difference *day-list* (append  *softs-list* 
+ ;                            '(nk.d1b ru.d1b cd.d1b bp.d1b e1.d1b jy.d1b sf.d1b gc.d1b pa.d1b s.d1b sm.d1b bo.d1b c.d1b lh.d1b lc.d1b))))
+
+
+ (defparameter *position-list*
+         '(
+     dj.d1b sp.d1b
+     nd.d1b ru.d1b nk.d1b
+     ty.d1b us.d1b
+     gc.d1b si.d1b cp.d1b
+     pl.d1b pa.d1b
+     ad.d1b bp.d1b cd.d1b e1.d1b jy.d1b mx.d1b nz.d1b sf.d1b
+     
+     cl.d1b ho.d1b   hu.d1b
+     ng.d1b
+     ct.d1b cc.d1b cf.d1b ;lb.d1b
+     oj.d1b su.d1b
+     c.d1b s.d1b
+     bo.d1b sm.d1b w.d1b
+     lc.d1b lh.d1b
+     ))
+
+
+(defparameter *ninja-symbol*
+   '(
+     (dj.d1b . YM)
+     (sp.d1b . ES)
+     (nd.d1b . NQ)
+     (ru.d1b . RTY);TF)
+     (nk.d1b . NKD)
+
+     (ty.d1b . ZN)
+     (us.d1b . ZB)
+
+     (gc.d1b . GC)
+     (si.d1b . SI)
+     (cp.d1b . HG)
+     (pl.d1b . PL)
+     (pa.d1b . PA)
+
+     (ad.d1b . 6A)
+     (bp.d1b . 6B)
+     (cd.d1b . 6C)
+     (e1.d1b . 6E)
+     (jy.d1b . 6J)
+     (sf.d1b . 6S)
+     (mx.d1b . 6M)
+     (nz.d1b . 6N)
+
+     (cl.d1b . CL)(cl1.d1b . CL)
+     (ho.d1b . HO)
+     (hu.d1b . RB)
+     (ng.d1b . NG)
+
+     (ct.d1b . CT)
+     (cc.d1b . CC)
+     (cf.d1b . KC)
+     (oj.d1b . OJ)
+     (su.d1b . SB)
+
+     (c.d1b . ZC)
+     (s.d1b . ZS)
+     (bo.d1b . ZL)
+     (sm.d1b . ZM)
+     (w.d1b . ZW)
+
+     (lc.d1b . LE)
+     (lh.d1b . HE)
+
+    (aud.d3b . $AUDUSD)
+    (gbp.d3b . $GBPUSD)
+    (cad.d3b . $USDCAD)
+    (eur.d3b . $EURUSD)
+    (jpy.d3b . $USDJPY)
+    (chf.d3b . $USDCHF)
+    (inr.d3b . $USDINR)
+
+    (chfjpy.d3b . $CHFJPY)
+    (euraud.d3b . $EURAUD)
+    (eurchf.d3b . $EURCHF)
+    (eurgbp.d3b . $EURGBP)
+    (eurjpy.d3b . $EURJPY)
+    (gbpjpy.d3b . $GBPJPY)
+    (nzdusd.d3b . $NZDUSD)
+    (usdhkd.d3b . $USDHKD)
+    (usdzar.d3b . $USDZAR)
+    (brl.d3b . $USDBRL)
+    (cny.d3b . $USDCNY)
+    (rub.d3b . $USDRUB)
+    (mxn.d3b . $USDMXN)
+
+   (dinr.d1b . DINR)
+   (dbsx.d1b . DBSX)
+   (deu.d1b . DEUR)
+   (dbp.d1b . DGBP)
+   (djy.d1b . DJY)
+   (ddg.d1b . DG)
+   (dds.d1b . DS)
+   (dwti.d1b . DWTI)
+   (dbsx.d1b . DBSX)
+
+   (aa.d3b . AA)
+   (aapl.d3b . AAPL)
+   (amd.d3b . AMD)
+   (axp.d3b . AXP)
+   (ba.d3b . BA)
+   (bac.d3b . BAC)
+   (bsx.d3b . BSX)
+   (cat.d3b . CAT)
+   (chk.d3b . CHK)
+   (cop.d3b . COP)(coya.d3b . COYA)
+   (csco.d3b . CSCO)
+   (cvx.d3b . CVX)
+   (dd.d3b . DD)
+   (dis.d3b . DIS)
+
+   (ete.d3b . ETE)
+   (f.d3b . F)
+   (fb.d3b . FB)
+   (fcx.d3b . FCX)
+   (ge.d3b . GE)
+    (grpn.d3b . GRPN)
+    (gs.d3b . GS)
+    
+    (hd.d3b . HD)
+    (hpq.d3b . HPQ)
+    (ibm.d3b . IBM) 
+    (intc.d3b . INTC)
+    (kmi.d3b . KMI)
+    (ko.d3b . KO)
+    (jcp.d3b . JCP)
+    (jnj.d3b . JNJ)
+    (jpm.d3b . JPM)
+    (mcd.d3b . MCD)
+    (mmm.d3b . MMM)
+    (mrk.d3b . MRK)
+    (mu.d3b . MU) 
+    (msft.d3b . MSFT)
+    (nke.d3b . NKE)
+
+    (pfe.d3b . PFE) 
+    (pbr.d3b . PBR)
+    (pg.d3b . PG)
+    (qqq.d3b . QQQ)
+    (rad.d3b . RAD)
+    (siri.d3b . SIRI)
+    (swn.d3b . SWN)
+    (symc.d3b . SYMC)
+    (trv.d3b . TRV)
+    (unh.d3b . UNH)
+    (utx.d3b . UTX)
+    (v.d3b . V)
+    (vz.d3b . VZ)
+    (wmt.d3b . WMT) 
+    (xom.d3b . XOM)
+))
+
+(defparameter *mt-symbol*
+  '(
+    (aud.d3b . AUDUSD)
+    (gbp.d3b . GBPUSD)
+    (cad.d3b . USDCAD)
+    (eur.d3b . EURUSD)
+    (jpy.d3b . USDJPY)
+    (chf.d3b . USDCHF)
+    (inr.d3b . USDINR)
+
+    (chfjpy.d3b . CHFJPY)
+    (euraud.d3b . EURAUD)
+    (eurchf.d3b . EURCHF)
+    (eurgbp.d3b . EURGBP)
+    (eurjpy.d3b . EURJPY)
+    (gbpjpy.d3b . GBPJPY)
+    
+    (nzdusd.d3b . NZDUSD)
+    (usdhkd.d3b . USDHKD)
+    (usdzar.d3b . USDZAR)
+    (brl.d3b . USDBRL)
+    (cny.d3b . USDCNY)
+    (rub.d3b . USDRUB)
+    (mxn.d3b . USDMXN)
+
+
+    (dinr.d1b . DINR)
+    (dbs.d1b . DBSX)
+    (deu.d1b . DEUR)
+    (dbp.d1b . DGBP)
+    (djy.d1b . DJY)
+    (ddg.d1b . DG)
+    (dds.d1b . DS)
+    (dwti.d1b . DWTI)
+    (dbsx.d1b . DBSX)
+
+))
+
+(defparameter *oec-symbol*
+   '(
+     (dj.d1b . YM)
+     (sp.d1b . ES)
+     (nd.d1b . NQ)
+     (ru.d1b . RTY);;changed to RTY per Ilan 11/12/2019
+     (nk.d1b . NKD)
+
+     (ty.d1b . ZN)
+     (us.d1b . ZB)
+
+     (gc.d1b . GGC)
+     (si.d1b . GSI)
+     (cp.d1b . GHG)
+     (pl.d1b . GPL)
+     (pa.d1b . GPA)
+
+     (ad.d1b . 6A)
+     (bp.d1b . 6B)
+     (cd.d1b . 6C)
+     (e1.d1b . 6E)
+     (jy.d1b . 6J)
+     (sf.d1b . 6S)
+     (mx.d1b . 6M)
+     (nz.d1b . 6N)
+
+     (cl.d1b . GCL)
+     (ho.d1b . GHO)
+     (hu.d1b . GRB)
+     (ng.d1b . GNG)
+
+     (ct.d1b . CT-M)
+     (cc.d1b . CC-M)
+     (cf.d1b . KC-M)
+     (oj.d1b . OJ-M)
+     (su.d1b . SB-M)
+
+     (c.d1b . ZC)
+     (s.d1b . ZS)
+     (bo.d1b . ZL)
+     (sm.d1b . ZM)
+     (w.d1b . ZW)
+
+     (lc.d1b . LE)
+     (lh.d1b . HE)
+
+    (aud.d3b . AUD/USD)
+    (gbp.d3b . GBP/USD)
+    (cad.d3b . USD/CAD)
+    (eur.d3b . EUR/USD)
+    (jpy.d3b . USD/JPY)
+    (chf.d3b . USD/CHF)
+
+
+    (chfjpy.d3b . CHF/JPY)
+    (euraud.d3b . EUR/AUD)
+    (eurchf.d3b . EUR/CHF)
+    (eurgbp.d3b . EUR/GBP)
+    (eurjpy.d3b . EUR/JPY)
+
+    (gbpjpy.d3b . GBP/JPY)
+
+   (dinr.d1b . DINR)
+   (dbs.d1b . DBS)
+   (dbp.d1b . DBP)
+   (djy.d1b . DJY)
+   (ddg.d1b . DDG)
+   (dds.d1b . DDS)
+   (dwti.d1b . DWTI)
+
+
+  ))
+
+(defparameter *cqg-symbol*
+   '((ng.d1b . NGE)
+     (cl.d1b . MCLE)
+     (us.d1b . USA)
+     (nd.d1b . MNQ)
+     (sp.d1b . MES)
+
+     (gc.d1b . GCE)
+     (si.d1b . SIL)
+     (cp.d1b . CPE)
+     
+     (dj.d1b . YM)
+     (ru.d1b . F.US.TFE)
+     (e1.d1b . EU6)
+     (jy.d1b . JY6)
+
+     (w.d1b . ZWA))
+     )
+
+(defparameter *ts-symbol*
+   '(
+     (dj.d1b . MYM)
+     (sp.d1b . MES)
+     (nd.d1b . MNQ)
+     (ru.d1b . M2K)
+    ; (ru.d1b . MRTY);TF
+     (ru.d1b . TF);;;needed so rassoc will work before RTYU19 began
+     (nk.d1b . NK)
+
+     (ty.d1b . TY)
+     (us.d1b . US)
+
+     (gc.d1b . QMGC)
+     (si.d1b . QSIL);QI)
+     (cp.d1b . HG)
+     (pl.d1b . PL)
+     (pa.d1b . PA)
+
+     (ad.d1b . AD)
+     (bp.d1b . BP)
+     (cd.d1b . CD)
+     (e1.d1b . EU)
+     (jy.d1b . JY)
+     (sf.d1b . SF)
+     (mx.d1b . MP)
+     (nz.d1b . NE)
+
+     (cl.d1b . MCL)
+     (cl1.d1b . MCL)
+     (ho.d1b . HO)
+     (hu.d1b . RB)
+     (ng.d1b . QG)
+
+     (ct.d1b . CT)
+     (cc.d1b . CC)
+     (cf.d1b . KC)
+     (oj.d1b . OJ)
+     (su.d1b . SB)
+
+     (c.d1b . YC)
+     (s.d1b . YK)
+     (bo.d1b . BO)
+     (sm.d1b . SM)
+     (w.d1b . YW)
+
+     (lc.d1b . LC)
+     (lh.d1b . LH)
+
+    (aud.d3b . AUDUSD)
+    (gbp.d3b . GBPUSD)
+    (cad.d3b . USDCAD)
+    (eur.d3b . EURUSD)
+    (jpy.d3b . USDJPY)
+    (chf.d3b . USDCHF)
+    (inr.d3b . USDINR)
+
+    (chfjpy.d3b . CHFJPY)
+    (euraud.d3b . EURAUD)
+    (eurchf.d3b . EURCHF)
+    (eurgbp.d3b . EURGBP)
+    (eurjpy.d3b . EURJPY)
+    (gbpjpy.d3b . GBPJPY)
+    (nzdusd.d3b . NZDUSD)
+    (usdhkd.d3b . USDHKD)
+    (usdzar.d3b . USDZAR)
+    (brl.d3b . USDBRL)
+    (cny.d3b . USDCNY)
+    (rub.d3b . USDRUB)
+    (mxn.d3b . USDMXN)
+
+   (dinr.d1b . DINR)
+   (dbsx.d1b . DBSX)
+   (deu.d1b . DEUR)
+   (dbp.d1b . DGBP)
+   (djy.d1b . DJY)
+   (ddg.d1b . DG)
+   (dds.d1b . DS)
+   (dwti.d1b . DWTI)
+   (dbsx.d1b . DBSX)
+
+   (aa.d3b . AA)
+   (aapl.d3b . AAPL)(ag.d3b . AG)(alks.d3b . ALKS)
+   (amd.d3b . AMD)(amsc.d3b . AMSC)(apld.d3b . APLD)(arm.d3b . ARM)(aroc.d3b . AROC)
+   (asts.d3b . ASTS)(aten.d3b . ATEN)
+   (ba.d3b . BA)
+   (bac.d3b . BAC)(beam.d3b . BEAM)(bioa.d3b . BIOA)(bksy.d3b . BKSY)
+   (bsx.d3b . BSX)
+   (chk.d3b . CHK)
+   (cop.d3b . COP)(coya.d3b . COYA)(cprx.d3b . CPRX)(crsp.d3b . CRSP)
+   (csco.d3b . CSCO)(ctre.d3b . CTRE)(dcth.d3b . DCTH)(dnli.d3b . DNLI)
+   (ego.d3b . EGO)
+   (et.d3b . ET)(ete.d3b . ETE)(eqx.d3b . EQX)
+   (f.d3b . F)
+   (fb.d3b . FB)
+   (fcx.d3b . FCX)(gdyn.d3b . GDYN)
+   (ge.d3b . GE)
+   (grpn.d3b . GRPN)(idr.d3b . IDR)(imux.d3b . IMUX)
+   (irdm.d3b . IRDM)(iren.d3b . IREN)
+   (jcp.d3b . JCP)(hg.d3b . HG)
+   (hpq.d3b . HPQ) 
+   (intc.d3b . INTC)(kgei.d3b . KGEI)(kins.d3b . KINS)
+   (kmi.d3b . KMI)
+   (ldos.d3b . LDOS)
+   (lhx.d3b . LHX)
+   (lmt.d3b . LMT)(ibit.d3b . IBIT)(intc.d3b . INTC)(iwm.d3b . IWM)
+   (lunr.d3b . LUNR)(lysdy.d3b . LYSDY)
+   (mir.d3b . MIR)(mu.d3b . MU) (mag.d3b . MAG)
+   (msft.d3b . MSFT)(nage.d3b . NAGE)
+   (noc.d3b . NOC)(ntla.d3b . NTLA)(nuvb.d3b . NUVB)(onds.d3b . ONDS)
+   (pfe.d3b . PFE) 
+   (pbr.d3b . PBR)
+   (pl.d3b . PL)(prop.d3b . PROP)(psix.d3b . PSIX)
+   (qqq.d3b . QQQ)(qbts.d3b . QBTS)
+   (rad.d3b . RAD)(rcat.d3b . RCAT)
+   (rdw.d3b . RDW)
+   (rklb.d3b . RKLB)(rxrx.d3b . RXRX)
+   (sats.d3b . SATS)(sdgr.d3b . SDGR)
+   (siri.d3b . SIRI)(slm.d3b . SLM)(slv.d3b . SLV)(smr.d3b . SMR)(sofi.d3b . SOFI)(soxl.d3b . SOXL)
+   (spce.d3b . SPCE)
+   (spir.d3b . SPIR)(spy.d3b . SPY)
+   (swn.d3b . SWN)
+   (symc.d3b . SYMC)(tlt.d3b . TLT) (tqqq.d3b . TQQQ)
+   (tsat.d3b . TSAT)(ung.d3b . UNG)(vsat.d3b . VSAT)
+))
+
+(defparameter *barchart-symbol*
+  '( (dj.d1b . YM)
+     (sp.d1b . ET)
+     (nd.d1b . NM)
+     (ru.d1b . QR);;e-mini russell 2000
+
+     (cl.d1b . CY)
+    
+     (ng.d1b . NG)
+     (ty.d1b . TY)
+     (us.d1b . ZB)
+    
+     (w.d1b . ZW)
+     (c.d1b . ZC)
+     (s.d1b . ZS)
+     (gc.d1b . GR)
+    (si.d1b . SO);this is the 1000oz contract ;QI is the 2500 oz contract
+
+    (ad.d1b . A6)
+    (bp.d1b . B6)
+    (e1.d1b . E6)
+    (sf.d1b . S6)
+    (cd.d1b . C6)
+    (jy.d1b . J6)
+    
+))
+(defparameter *month-codes*
+ '(("JAN" "F" 1)
+   ("FEB" "G" 2)
+   ("MAR" "H" 3)
+   ("APR" "J" 4)
+   ("MAY" "K" 5)
+   ("JUN" "M" 6)
+   ("JUL" "N" 7)
+   ("AUG" "Q" 8)
+   ("SEP" "U" 9)
+   ("OCT" "V" 10)
+   ("NOV" "X" 11)
+   ("DEC" "Z" 12)))
+
+(defun make-oec-symbol (market tdate)
+  (block nil
+  (let ((month ;(subseq (third (assoc market *C-list*)) 0 3))
+         (subseq  (contract-month market tdate) 0 3))
+          year month-code mkt)
+ 
+  ; (print month)
+    (when (member market *forex-list*) (return (format nil "~A" (cdr (assoc market *oec-symbol*)))))
+   
+   (when (member market *stocks-list*)
+         (setq mkt (format nil "~A" market))
+         (return (subseq mkt 0 (position #\. mkt))))
+   (setq month-code (second (assoc  month *month-codes* :Test 'equal)))
+   (if (>= (third (assoc month *month-codes* :test 'equal))(nummonth tdate))
+       (setq year (subseq (format nil "~A" (numyear tdate)) 3))
+       (setq year (subseq (format nil "~A" (1+ (numyear tdate))) 3)))
+
+   (string-append (format nil "~A" (cdr (assoc market *oec-symbol*))) month-code year))))
+
+
+
+
+(defparameter *ninja-price-conversion-factor*
+   '(
+     (dj.d1b 1 0)
+     (sp.d1b 1 2)
+     (nd.d1b 1 2)
+     (ru.d1b 1 1)
+     (nk.d1b 1 0)
+
+     (tyy.d1b 1 5)
+     (us.d1b 1 5)
+
+     (gc.d1b 1 1)
+     (si.d1b 1 3)
+     (cp.d1b 1 4)
+     (pa.d1b 1 2)
+     (pl.d1b 1 1)
+
+     (ad.d1b 1 4)
+     (bp.d1b 1 4)
+     (cd.d1b 1 4)
+     (e1.d1b 1 4)
+     (jy.d1b .01 7)
+     (sf.d1b 1 4)
+
+     (cl.d1b 1 3)
+     (ho.d1b 1 4)
+     (hu.d1b .01 4)
+     (ng.d1b 1 3)
+
+     (ct.d1b 1 2)
+     (cc.d1b 1 0)
+     (cf.d1b 1 2)
+     (oj.d1b 1 2)
+     (su.d1b 1 2)
+
+     (c.d1b 1 2)
+     (s.d1b 1 2)
+     (bo.d1b 1 2)
+     (sm.d1b 1 1)
+     (w.d1b 1 2)
+
+     (lc.d1b 1 3)
+     (lh.d1b 1 3)
+
+    (aud.d3b 1 4)
+    (gbp.d3b 1 4)
+    (cad.d3b 1 4)
+    (eur.d3b 1 4)
+    (jpy.d3b 1 2)
+    (chf.d3b 1 4)
+
+    (chfjpy.d3b 1 2)
+    (euraud.d3b 1 4)
+    (eurchf.d3b 1 4)
+    (eurgbp.d3b 1 4)
+    (eurjpy.d3b 1 2)
+
+    (gbpjpy.d3b 1 2)
+
+  ))
+
+
+;;;use the following multipliers  to convert to oec requirements
+;;;the last number is the number of decimal places
+(defparameter *oec-price-conversion-factor*
+   '(
+     (dj.d1b 1 0)
+     (sp.d1b 1 2)
+     (nd.d1b 1 2)
+     (ru.d1b 1 1)
+     (nk.d1b 1 0)
+
+     (ty.d1b 1 5)
+     (us.d1b 1 5)
+
+     (gc.d1b 1 1)
+     (si.d1b 1 3)
+     (cp.d1b 1 4)
+     (pl.d1b 1 1)
+     (pa.d1b 1 2)
+
+
+     (ad.d1b 1 4)
+     (bp.d1b 1 2)
+     (cd.d1b 1 2)
+     (e1.d1b 1 4)
+     (jy.d1b .01 7)
+     (sf.d1b 1 4)
+
+     (cl.d1b 1 3)
+     (ho.d1b 1 4)
+     (hu.d1b .01 4)
+     (ng.d1b 1 3)
+
+     (ct.d1b .01 4)
+     (cc.d1b 1 0)
+     (cf.d1b .01 4)
+     (oj.d1b .01 4)
+     (su.d1b .01 4)
+
+     (c.d1b .01 4)
+     (s.d1b .01 4)
+     (bo.d1b .01 4)
+     (sm.d1b 1 1)
+     (w.d1b .01 4)
+
+     (lc.d1b 1 3)
+     (lh.d1b 1 3)
+
+    (aud.d3b 1 4)
+    (gbp.d3b 1 4)
+    (cad.d3b 1 4)
+    (eur.d3b 1 4)
+    (jpy.d3b 1 2)
+    (chf.d3b 1 4)
+
+    (chfjpy.d3b 1 2)
+    (euraud.d3b 1 4)
+    (eurchf.d3b 1 4)
+    (eurgbp.d3b 1 4)
+    (eurjpy.d3b 1 2)
+
+    (gbpjpy.d3b 1 2)
+
+  ))
+
+
+;;;;the second number is the number of digits
+(defparameter *mt-price-conversion-factor*
+   '(
+     (dj.d1b 1 0)
+     (sp.d1b 1 2)
+     (nd.d1b 1 2)
+     (ru.d1b 1 1)
+     (nk.d1b 1 0)
+     (dbsx.d1b 1 0)
+
+     (ty.d1b 1 5)
+     (us.d1b 1 5)
+
+     (gc.d1b 1 1)
+     (si.d1b 1 3)
+     (cp.d1b 1 4)
+     (ddg.d1b 1 1)
+     (dds.d1b 1 3)
+
+     (ad.d1b 1 4)
+     (bp.d1b 1 4)
+     (cd.d1b 1 4)
+     (e1.d1b 1 4)
+     (jy.d1b .01 7)
+     (sf.d1b 1 4)
+     (dinr.d1b 1 2)
+     (deu.d1b 1 2)
+     (dbp.d1b 1 2)
+     (djy.d1b 1 2)
+ 
+     (cl.d1b 1 3)
+     (ho.d1b 1 4)
+     (hu.d1b .01 4)
+     (ng.d1b 1 3)
+
+     (ct.d1b 1 2)
+     (cc.d1b 1 0)
+     (cf.d1b 1 2)
+     (oj.d1b 1 2)
+     (su.d1b 1 2)
+
+     (c.d1b 1 2)
+     (s.d1b 1 2)
+     (bo.d1b 1 2)
+     (sm.d1b 1 1)
+     (w.d1b 1 2)
+
+     (lc.d1b 1 3)
+     (lh.d1b 1 3)
+
+    (aud.d3b 1 4)
+    (gbp.d3b 1 4)
+    (cad.d3b 1 4)
+    (eur.d3b 1 4)
+    (jpy.d3b 1 2)
+    (chf.d3b 1 4)
+    (inr.d3b 1 4)
+   
+    (chfjpy.d3b 1 2)
+    (euraud.d3b 1 4)
+    (eurchf.d3b 1 4)
+    (eurgbp.d3b 1 4)
+    (eurjpy.d3b 1 2)
+
+    (gbpjpy.d3b 1 2)
+
+    (nzdusd.d3b 1 4)
+    (usdhkd.d3b 1 4)
+    (mxn.d3b 1 4)
+    (brl.d3b 1 4)
+    (rub.d3b 1 4)
+    (cny.d3b 1 4)
+    (usdzar.d3b 1 4)
+    
+
+  ))
+
+
+;;;;the second number is the number of digits
+(defparameter *ts-price-conversion-factor*
+   '(
+     (dj.d1b 1 0)
+     (sp.d1b 1 2)
+     (nd.d1b 1 2)
+     (ru.d1b 1 1)
+     (nk.d1b 1 0)
+     (dbsx.d1b 1 0)
+
+     (ty.d1b 1 5)
+     (us.d1b 1 5)
+
+     (gc.d1b 1 1)
+     (si.d1b 1 3)
+     (cp.d1b 1 4)
+     (pl.d1b 1 1)
+     (pa.d1b 1 2)
+     (ddg.d1b 1 1)
+     (dds.d1b 1 3)
+
+     (ad.d1b 1 4)
+     (bp.d1b 1 4)
+     (cd.d1b 1 4)
+     (e1.d1b 1 4)
+     (jy.d1b 1 7)
+     (sf.d1b 1 4)
+     (dinr.d1b 1 2)
+     (deu.d1b 1 2)
+     (dbp.d1b 1 2)
+     (djy.d1b 1 2)
+ 
+     (cl.d1b 1 3)
+     (ho.d1b 1 4)
+     (hu.d1b .01 4)
+     (ng.d1b 1 3)
+
+     (ct.d1b 1 2)
+     (cc.d1b 1 0)
+     (cf.d1b 1 2)
+     (oj.d1b 1 2)
+     (su.d1b 1 2)
+
+     (c.d1b 1 2)
+     (s.d1b 1 2)
+     (bo.d1b 1 2)
+     (sm.d1b 1 1)
+     (w.d1b 1 2)
+
+     (lc.d1b 1 3)
+     (lh.d1b 1 3)
+
+    (aud.d3b 1 4)
+    (gbp.d3b 1 4)
+    (cad.d3b 1 4)
+    (eur.d3b 1 4)
+    (jpy.d3b 1 2)
+    (chf.d3b 1 4)
+    (inr.d3b 1 4)
+   
+    (chfjpy.d3b 1 2)
+    (euraud.d3b 1 4)
+    (eurchf.d3b 1 4)
+    (eurgbp.d3b 1 4)
+    (eurjpy.d3b 1 2)
+
+    (gbpjpy.d3b 1 2)
+
+    (nzdusd.d3b 1 4)
+    (usdhkd.d3b 1 4)
+    (mxn.d3b 1 4)
+    (brl.d3b 1 4)
+    (rub.d3b 1 4)
+    (cny.d3b 1 4)
+    (usdzar.d3b 1 4)
+
+     (asts.d3b 1 2)(bksy.d3b 1 2)
+     (ldos.d3b 1 2)
+     (irdm.d3b 1 2)
+     (spce.d3b 1 2)
+     (rklb.d3b 1 2)
+     (sats.d3b 1 2)
+     (lunr.d3b 1 2)
+     (tsat.d3b 1 2)
+     (spir.d3b 1 2)
+     (pl.d3b 1 2)
+     (lhx.d3b 1 2)
+     (lmt.d3b 1 2)
+     (noc.d3b 1 2)
+     (ba.d3b 1 2)
+     (rdw.d3b 1 2)
+
+     (ag.d3b 1 2)(alks.d3b 1 2)(amsc.d3b 1 2)(apld.d3b 1 2)(arm.d3b 1 2) (aroc.d3b 1 2)(aten.d3b 1 2)
+     (coya.d3b 1 2)(cprx.d3b 1 2)(ctre.d3b 1 2)
+     (dcth.d3b 1 2)(dnli.d3b 1 2)
+     (ego.d3b 1 2)(eqx.d3b 1 2)(et.d3b 1 2)
+    
+     (gdyn.d3b 1 2)
+     (hg.d3b 1 2)
+     (idr.d3b 1 2)(ibit.d3b 1 2)(imux.d3b 1 4)(intc.d3b 1 2)(iwm.d3b 1 2)(iren.d3b 1 2)
+     (kgei.d3b 1 2)(kins.d3b 1 2)(lysdy.d3b 1 2)
+      
+     (mag.d3b 1 2)(mir.d3b 1 2) (nage.d3b 1 2)(nuvb.d3b 1 2)(onds.d3b 1 2)
+     (prop.d3b 1 2)(psix.d3b 1 2)(qbts.d3b 1 2)(rcat.d3b 1 2)(rxrx.d3b 1 2)
+     (sdgr.d3b 1 2)(slm.d3b 1 2)(slv.d3b 1 2)(smr.d3b 1 2)(sofi.d3b 1 2)
+     (soxl.d3b 1 2)(spy.d3b 1 2)(tlt.d3b 1 2)(tqqq.d3b 1 2)(ung.d3b 1 2)(vsat.d3b 1 2)
+    
+    
+    
+  ))
+
+
+#|
+;;;added 50 on 5/18/15
+(defparameter *market-days-available*
+
+  '((dj.d1b . 3460)
+    (sp.d1b . 7460)
+    (nd.d1b . 5460)
+    (ru.d1b . 4360)
+    (nk.d1b . 5460)
+
+    (ty.d1b . 4460)
+    (us.d1b . 8460)
+
+    (gc.d1b . 8460)
+    (si.d1b . 7900)
+    (cp.d1b . 6460)
+    (pl.d1b . 6260)
+    (pa.d1b . 6160)
+
+    (cl.d1b . 7260)
+    (ho.d1b . 8360)
+    (hu.d1b . 4060)
+    (ng.d1b . 5360)
+
+    (ad.d1b . 6260)
+    (bp.d1b . 8460)
+    (cd.d1b . 8460)
+    (e1.d1b . 3160)
+    (jy.d1b . 8460)
+    (sf.d1b . 8460)
+    (mx.d1b . 1460)
+
+    (ct.d1b . 8460)
+    (cf.d1b . 8460)
+    (cc.d1b . 4460)
+    (oj.d1b . 7700)
+    (su.d1b . 8460)
+
+    (c.d1b . 8460)
+    (s.d1b . 8460)
+    (sm.d1b . 7260)
+    (bo.d1b . 8460)
+    (w.d1b . 8460)
+
+    (lc.d1b . 6260)
+    (lh.d1b . 8260)
+
+    (aud.d3b . 5660);;added 50 on 5/17/15
+    (cad.d3b . 4623)
+    (gbp.d3b . 5911)
+    (eur.d3b . 3730)
+    (chf.d3b . 5913)
+    (jpy.d3b . 5913)
+    (eurjpy.d3b . 3830)
+    (gbpjpy.d3b . 3330)
+
+    (mxn.d3b . 3382)
+
+    (ge.d3b .  8493)
+    (sune.d3b . 4619)
+    (bac.d3b . 8493)
+    (pbr.d3b . 3336)
+    (vrx.d3b . 4901)
+    (fcx.d3b . 4624)
+    (siri.d3b . 4805)
+    (mnkd.d3b . 2343)
+    (csco.d3b . 5985)
+    (msft.d3b . 6982)
+    (aapl.d3b . 8306)
+    (aa.d3b . 8495)
+    ))
+
+|#
+
+(defun add-limit (market lim)
+ (let (cfg-in cfg-out (path "~/mk-data/index.cfg"))
+
+  (with-open-file (str path :direction :input)
+   (setq cfg-in (read str)))
+
+   (dolist (ith cfg-in)
+    (if (eql market (car ith))
+        (push (nconc ith (list (cons 'LIMIT lim))) cfg-out)
+        (push ith cfg-out)))
+
+  (with-open-file (str path :direction :output :if-exists :supersede)
+     (format str "(")
+    (dolist (kth cfg-out)
+       (format str "~S~%" kth))
+     (format str ")")
+    )
+))

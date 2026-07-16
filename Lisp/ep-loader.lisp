@@ -1,0 +1,68 @@
+;;; -*- Mode: LISP; Package: user; Base: 10. -*-
+;;;
+;;;   * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+;;;   *   *   *   *   *   *   *   EXITPOINTS  LOADER   *   *   *   *   *   *   *
+;;;   * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+;;;
+#+:ALLEGRO (in-package :user)
+#+:SBCL (in-package :common-lisp-user)
+;;;
+;;;;;;;;;;;;;;;;;;;;;LOADER FOR CURRENT VERSION OF E-WAVES;;;;;;;;;;;;;;;;;;;;;
+;;;
+
+
+#+:ALLEGRO (defparameter *upper-dir* "/home/mk-data/exitpoints/")
+#+:SBCL (defparameter *upper-dir* "lisp/")
+#+:SBCL (defparameter *config-dir* "lisp/config/")
+
+(load (format nil "~a~a" *upper-dir* "foreign-functions"))
+
+  ;;;CORE PROGRAMS
+  (load (format nil "~a~a" *upper-dir* "cima-ep"))
+  (load (string-append *upper-dir* "dio2-ep"))
+  (load (string-append *upper-dir* "batch-support-ep"))
+  (load (string-append *upper-dir* "degr-ep"))
+
+  ;;;UTILITIES
+  (load (string-append *upper-dir* "utils1-ep"))
+  (load (string-append *upper-dir* "utils2-ep"))
+  (load (string-append *upper-dir* "utils3-ep"))
+  (load (string-append *upper-dir* "utils4-ep"))
+  (load (string-append *upper-dir* "utils5"))
+  (load (string-append *upper-dir* "frgt"))
+  (load (string-append *upper-dir* "ftnd-ep"))
+  (load (string-append *upper-dir* "tools1"))
+
+  ;INPUT DATA
+  (load (string-append *upper-dir* "dio1-ep"))
+
+  (load (string-append *upper-dir* "qbld"))
+  (load (string-append *upper-dir* "pnms"))
+  (load (string-append *upper-dir* "sppm-ep"))
+
+  ;;;exitpoints
+
+  (load (string-append *upper-dir* "open.lisp"))
+  (load (string-append *config-dir* "settings.lisp"))
+  (load (string-append *config-dir* "open1.lisp"))
+  (load (string-append *config-dir* "brokers.lisp"))
+  (load (format nil "~a~a" *upper-dir* "chi"))
+ 
+  (load (string-append *upper-dir* "report.lisp"))
+
+  (load (string-append *upper-dir* "cycle-ep"))
+  (load (string-append *upper-dir* "voltest-ep"))
+  (load (string-append *upper-dir* "scott"))
+  (load (string-append *upper-dir* "candles"))
+  (load (string-append *upper-dir* "port.lisp"))
+  (load (string-append *upper-dir* "voltest1"))
+  (load (string-append *upper-dir* "voltest2-ep"))
+;  (load (string-append *upper-dir* "voltest3"))
+  (load (string-append *upper-dir* "voltest4-ep"))
+  (load (string-append *upper-dir* "voltest5-ep"))
+  (load (string-append *upper-dir* "voltest6-ep"))
+  (load (string-append *upper-dir* "voltest7-ep"))
+;;;for converting barchart watchlist to get preliminary update of data
+  (load (string-append *upper-dir* "barchart"))
+
+  

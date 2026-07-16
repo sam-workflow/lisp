@@ -1,0 +1,3447 @@
+;;; -*- Mode: LISP; Package: user; Base: 10. -*-
+
+#+ALLEGRO (in-package :user)
+#+:SBCL (in-package :common-lisp-user)
+;;;;
+;;;;This version does not use objectives.
+;;;It does use a vector database instead of lists
+;;;
+(defparameter *day-trade-warehouse3* (make-hash-table :test #'equal))
+(defparameter *swing-trade-warehouse3* (make-hash-table :test #'equal))
+(defparameter *position-trade-warehouse3* (make-hash-table :test #'equal))
+
+
+(defparameter *swing-features3* '(1 2 3 8 9 10))
+(defparameter *position-features3* '(1 2 5 6 7 12));;5 6 and 9 for stocks
+;;;
+;;;;For DAY TRADING
+;;;
+
+;;;;the file has one record per trade each record is a vector. The indicator values are for the previous date before the entry date.
+;;;;direction is either 1 or -1
+;;;;
+;;;;
+;;;
+;;;
+;;; #(*data-name* entry-date direction entry-price HT BT BR T5 T15 DO BR-1 CAN SST T45 ZBL BPL TIM)
+;;;
+;;;Feature 1 is direction
+;;;Feature 2 is the volatility ratio 4 day versus 28 day
+;;;Feature 3 is the day-bar-type
+;;;Feature 4 is the slow-stochastic of 21
+;;;Feature 6 is mo-diver 5 (trend of momentum RSI(9))
+;;;Feature 11 
+;;;Feature 12 is now the pinpoint
+;;;Feature 13 is mo-diver 45 (trend of momentum RSI(9))
+;;;feature 14 is pivot-index date-1
+;;;
+
+;;This function is used to add trades to the warehouse3 for all the day
+;;;markets (both score and non-score)
+;;;*position-list* includes all 35 futures markets
+(defun update-daytrade-warehouse3 (date &optional (markets *entry-list*))
+  (let (path1)
+   (mapcar #'(lambda (s1) (populate-day-trades3 s1 date (cdr (assoc s1 *market-days-available*)))) markets)
+ 
+ ; (dolist (market markets)
+  ;     (setq path1 (string-append *upper-dir-warehouse* (format nil "~S" market) "daytrades3.dat"))
+  ;     (format T "~%ADDING ~A" market)
+  ;     (add-day-trades3 path1))
+   (portfolio-simulation4 '(day) date 3500 (list markets))
+))
+
+(defun populate-day-trades3 (market date2 num &optional (outfile T))
+ (let (date trades long short cover-long cover-short entry-long entry-short date-1
+       risk
+        ave-win ave-loss losers winners extended-trades long-trade short-trade stop-long stop-short
+       (path1 (string-append *upper-dir-warehouse* (format nil "~S" market) "daytrades3.dat")))
+
+   (maind-x)(set-cat-list)
+   (set-market market)
+
+  (format outfile "~%~A~%" market)
+  (setq *entry-factor* .764 *stop-loss-day* .80)  ;;;1.0557)
+   (unless date2
+       (setq date2 (car (last (month-days (get-latest-index-date))))))
+
+   (setq date (add-mkt-days date2 (- num)))
+
+   (setq date-1 (getd date 'ydate))
+
+
+ ;;;;from date1 to date2
+ (dotimes (ith num)
+
+   (multiple-value-setq (entry-short entry-long)(vprices date 4 *entry-factor* 1))
+   (multiple-value-setq (stop-long stop-short)(vprices date 4 *stop-loss-day* 1))
+
+   (setq risk (min ; (float (/ *max-day-risk* (index-point-value)))
+                   (* .5 (- stop-short stop-long))))
+
+   (setq   date-1 date date (add-mkt-days date 1))
+
+   (when (getd date 'rollover) (setq  entry-long (+ entry-long (getd date 'rollover))
+    ))
+   (when (getd date 'rollover) (setq entry-short (+ entry-short (getd date 'rollover))
+    ))
+
+   (setq stop-long (- entry-long risk) stop-short (+ entry-short risk))
+
+
+
+;;;check if new long entry
+;;;enter on a stop order if opens below entry-stop.
+;;;enter on a limit order of open above the entry-stop
+;;;exit at the close
+
+   (when (and (<= (getd date 'low) entry-short)
+              (> (getd date 'high) entry-short)
+              (>= (* risk (index-point-value)) 100) ;;to avoid bad data
+	      (<= (* risk (index-point-value)) *max-day-risk*)
+              )
+          (setq short entry-short
+                short-trade (create-daytrade-entry-record-list3 date-1 -1 short)
+                 ))
+
+
+    (when (and
+               (>= (getd date 'high) entry-long)
+               (< (getd date 'low) entry-long)
+               (>= (* risk (index-point-value)) 100)
+	       (<= (* risk (index-point-value)) *max-day-risk*)
+               )
+           (setq long entry-long
+                 long-trade (create-daytrade-entry-record-list3 date-1 1 long)
+
+                 )) ;(format T "long-trade= ~A ~%" long-trade) )
+
+
+ ;;;check if stopped out on same day
+
+   (when (and long stop-long
+               (or (and (<= (getd date 'low) stop-long)
+                        (>= (getd date 'open) (getd date 'close)))
+                   (<= (getd date 'close) stop-long))
+               )
+           (push (- stop-long long) trades)
+           (setq long-trade (apply #'vector (append long-trade (list date (my-pretty-price stop-long)
+                                        (round (* (index-point-value) (- stop-long long)))))))
+           (push long-trade extended-trades)
+           (setq long-trade nil long nil stop-long nil
+           ))
+
+    (when (and short stop-short
+               (or (and (>= (getd date 'high) stop-short)
+                        (<= (getd date 'open) (getd date 'close)))
+                    (>= (getd date 'close) stop-short))
+                    )
+           (push (- short stop-short) trades)
+           (setq short-trade (apply #'vector (append short-trade (list date (my-pretty-price stop-short)
+                                           (round (* (index-point-value) (- short stop-short)))))))
+           (push short-trade extended-trades)
+           (setq short-trade nil short nil stop-short nil
+           ))
+
+
+
+;;;check if met exit criteria to exit at end of day of entry for day trade
+     (when long
+            (setq cover-long (getd date 'close))
+            (push (- cover-long long) trades)
+            (setq long-trade (apply #'vector (append long-trade (list date (my-pretty-price cover-long)
+                                           (round (* (index-point-value) (- cover-long long)))))))
+            (push long-trade extended-trades)
+            (setq long-trade nil long nil stop-long nil))
+
+      (when short
+           (setq cover-short (getd date 'close))
+           (push (- short cover-short) trades)
+           (setq short-trade (apply #'vector (append short-trade (list date (my-pretty-price cover-short)
+                                                (round (* (index-point-value) (- short cover-short)))))))
+           (push short-trade extended-trades)
+           (setq short-trade nil short nil stop-short nil))
+
+   );;;closes the dotimes
+
+
+
+   ;;;;apply commission of $75 per round turn and slippage of 0 ticks per round turn.
+  (setq trades (mapcar #'(lambda (s) (- s (/ *day-commission* (index-point-value)) (* 0 (index-tick-size)))) trades))
+
+  (when outfile
+
+   (setq losers (remove-if #'plusp trades) winners (remove-if #'zerop (remove-if #'minusp trades))
+         ave-win   (/ (* (list-sum winners) (or (index-point-value) 1)) (if (zerop (length winners)) 1 (length winners)))
+         ave-loss  (* (/ (list-sum losers) (if (zerop (length losers)) 1 (length losers))) (or (index-point-value) 1))
+          )
+
+   (format outfile "P/L= ~D  NUMBER TRADES= ~A  ACCURACY= ~,1,2,'*,' F%  PAYOFF RATIO= ~,2,0,'*,' F~%~
+        P/L PER TRADE= ~D AVERAGE GAIN= ~D  AVERAGE LOSS= ~D~%LARGEST LOSS= ~D  PROFIT FACTOR= ~,2,0,'*,' F  ~
+          DRAWDOWN= ~D"
+       (round (* (list-sum trades) (or (index-point-value) 1))) (length trades)
+       (/ (- (length trades) (length losers))
+          (if (zerop (length trades)) 1 (length trades)))
+       (abs (if (zerop ave-loss) 0 (/ ave-win ave-loss)))
+       (round (/ (* (list-sum trades) (or (index-point-value) 1)) (if (zerop (length trades)) 1 (length trades))))
+       (round ave-win)
+       (round ave-loss)
+       (round (* (or (min* losers) 0) (or (index-point-value) 1)))
+       (/ (* (length winners) ave-win) (* (if (zerop (length losers)) 1 (length losers))
+                                          (abs (if (zerop ave-loss) 1 ave-loss) )))
+       (round (* (drawdown trades)(or (index-point-value) 1)))
+      ; (if (plusp (list-sum trades))(round (* (optimal-f trades)(or (index-point-value) 1))) 0)
+       )
+
+     (with-open-file (stream path1 :direction :output :if-exists :supersede :if-does-not-exist :create)
+
+    (dolist (ith extended-trades)
+       (format stream "~S~%" ith)
+    ));;closes the dolist and with-open-file
+
+  );;;closes the when outfile
+  (values (round (* (list-sum trades) (or (index-point-value) 1)))
+       (length trades))
+ ));
+
+;;;the date is actually date-1
+;;;direction is -1 or 1
+;;;entry is the entry price
+;;;there are 13 indicators besides the direction (total 14)
+(defun create-daytrade-entry-record-list3 (date direction entry)
+   (let* ((date-1 (getd date 'ydate)))
+
+       (list *data-name* (getd date 'ndate) direction
+             (and entry (my-pretty-price entry))
+                              (my-round (/ (volatility date 4 1) (volatility date 63 1)) 3) ;;;feature 2
+                              (day-bar-type date) ;feature 3  9 levels
+                              (round (slow-stochastic date 21))  ;feature 4
+                              (roc-index date 5 63) ;feature 5  10 levels
+                              (roc-index date 21 252) ;;;feature 6  10 levels
+                    ;         (trend-signal date 45) ;feature 7
+                              (gann-slope-index date 5 63);;feature 7  5 levels
+                              (pivot-index date) ;feature 8  6 levels
+                              (range-index date) ;; feature 9 6 levels
+                              (2-bar-index date);;;feature 10  5 levels
+                              (day-bar-type date-1) ;feature 11  9 levels
+                           ;   (daytrade-reward-risk date direction) ;;feature 12
+                              (reflect3 date 3)      ;;  feature 12  5 levels
+                            ;  (mo-diver date 45) ;;feature 13
+                              (gann-slope-index date 9 63) ;;feature 13 5 levels
+                              (pivot-index date-1) ;;features 14 6 levels
+                              );;;closes the list
+
+))
+
+
+
+;;;use same features as voltest2 *day-features1*
+(defun daytrade-simulation-test3 (market date2 num &optional (features nil))
+ (let (date trades long short cover-long cover-short entry-long entry-short record trading-dates
+        date-1 epsignal longs long-gains shorts short-gains (running-sum 0) risk dayfeatures
+       ave-win ave-loss losers winners extended-trades long-trade short-trade stop-long stop-short
+       long-acc short-acc  (twr-long 1) (twr-short 1) bin draw ;draw-ave draw-90
+       (path-in (string-append *config-dir* "day-features.dat"))
+       (outfile (string-append *output-upper-dir* (format nil "~S" market) "day-summary3.dat"))
+       (path1 (string-append *output-upper-dir* (format nil "~S" market) "day-simulation3.dat"))
+       (path2 (string-append *output-upper-dir* (format nil "~S" market) "day-diary3.dat")))
+   (declare (ignore long-acc short-acc))
+   (set-market market)
+   (format T "~%~A~%" *data-name*)
+   (setq *entry-factor* .764 *stop-loss-day* .80)  ;; 1.0557) changed to be compatible with EPIC
+
+   (if (and (not features)(probe-file path-in))
+      (with-open-file (str path-in :direction :input)
+       (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+       (push record dayfeatures))))     
+  
+   (ifn features
+         (setq features (cdr (assoc market dayfeatures))))
+     (apply #'day-trade-bins3 features)
+
+   (setq date (add-mkt-days date2 (- num)))
+   (setq record (vector date (getd date 'close) 0 0 0))
+   (push record trading-dates)
+
+ ;;;;from date1 to date2
+ (dotimes (ith num)
+
+; (format T "Market= ~A date=~A~%" *data-name* date)
+
+   (multiple-value-setq (entry-short entry-long)(vprices date 4 *entry-factor* 1))
+   (multiple-value-setq (stop-long stop-short)(vprices date 4 *stop-loss-day* 1))
+
+   (setq risk (min ; (float (/ *max-day-risk* (index-point-value)))
+                   (* .5 (- stop-short stop-long))))
+
+
+   (setq  date-1 date date (add-mkt-days date 1))
+   (setq record (vector date (getd date 'close) 0 0 0))
+
+   (when (getd date 'rollover) (setq  entry-long (+ entry-long (getd date 'rollover))
+                                      entry-short (+ entry-short (getd date 'rollover)))
+
+    )
+
+    (setq stop-long (- entry-long risk) stop-short (+ entry-short risk))
+
+ ;   (format T "~%entry-long= ~A epsignal= ~A long-gains= ~A longs= ~A risk= ~A twr-long= ~A~%" entry-long epsignal long-gains longs risk twr-long)
+;;;;calculate bin-classifier only as needed
+ (when (or (>= (getd date 'high) entry-long)
+           (<= (getd date 'low) entry-short))
+       (multiple-value-setq (epsignal longs long-gains long-acc shorts short-gains short-acc bin)
+                   (bin-classifier-daytrades3 date-1 features))
+       (setq twr-short (day-bin-twr3 bin))(setf (nth 0 bin) 1)
+       (setq twr-long (day-bin-twr3 bin))
+       )
+
+;;;check if new entry
+
+   (when (and (> (getd date 'high) entry-short)
+              (<= (getd date 'low) entry-short)
+              (member epsignal '(OK DOWN))(> shorts 0.0)
+              (>= (/ short-gains shorts) 100.0) (> twr-short 1.0)
+	      (>= (* risk (index-point-value)) 100)
+              (<= (* risk (index-point-value)) *max-day-risk*)
+                 )
+          (setq short entry-short
+                short-trade (list date 'short short)
+                )
+           (setf (svref record 2) -1)
+           (setf (svref record 3) (- (svref record 3) (/ *day-commission* (index-point-value))))
+                 )
+
+
+    (when (and (< (getd date 'low) entry-long)
+               (>= (getd date 'high) entry-long)
+               (member epsignal '(OK UP))(> longs 0.0)
+               (>= (/ long-gains longs) 100.0) (> twr-long 1.0)
+               (>= (* risk (index-point-value)) 100)
+	       (<= (* risk (index-point-value)) *max-day-risk*)
+             )
+
+           (setq long entry-long
+                 long-trade (list date 'long long)
+                 )
+           (setf (svref record 2) 1)
+           (setf (svref record 3) (- (svref record 3) (/ *day-commission* (index-point-value))))
+                 )
+
+
+ ;;;check if stopped out on same day
+
+   (when (and long stop-long
+              (or (and (<= (getd date 'low) stop-long)
+                       (>= (getd date 'open) (getd date 'close)))
+                   (<= (getd date 'close) stop-long))
+           )
+           (push (- stop-long long) trades)
+           (setq long-trade (apply #'vector (append long-trade (list date (cdr (assoc *data-name* *ninja-symbol*)) (contract-month *data-name* date) 'S
+                                                                  stop-long (my-pretty-price (- stop-long long))))))
+           (push long-trade extended-trades)
+           (setf (svref record 2) 1)
+           (setf (svref record 3) (+ (svref record 3)(- stop-long long)))
+           (setq long-trade nil long nil stop-long nil
+           ))
+
+    (when (and short stop-short
+               (or (and (>= (getd date 'high) stop-short)
+                        (<= (getd date 'open) (getd date 'close)))
+                    (>= (getd date 'close) stop-short))
+                 )
+           (push (- short stop-short) trades)
+           (setq short-trade (apply #'vector (append short-trade (list date (cdr (assoc *data-name* *ninja-symbol*)) (contract-month *data-name* date) 'S
+                                                                      stop-short (my-pretty-price (- short stop-short))))))
+           (push short-trade extended-trades)
+           (setf (svref record 2) -1)
+           (setf (svref record 3) (+ (svref record 3)(- short stop-short)))
+           (setq short-trade nil short nil stop-short nil
+           ))
+
+
+
+;;;check if met exit criteria on day of entry (exit at end of day)
+     (when long
+            (setq cover-long (getd date 'close))
+            (push (- cover-long long) trades)
+            (setq long-trade (apply #'vector (append long-trade (list date (cdr (assoc *data-name* *ninja-symbol*)) (contract-month *data-name* date) 'N
+                                                                   cover-long (my-pretty-price (- cover-long long))))))
+            (push long-trade extended-trades)
+            (setf (svref record 2) 1)
+            (setf (svref record 3) (+ (svref record 3) (- (getd date 'close) long)))
+            (setq long-trade nil long nil stop-long nil))
+
+      (when short
+           (setq cover-short (getd date 'close))
+           (push (- short cover-short) trades)
+           (setq short-trade (apply #'vector (append short-trade (list date (cdr (assoc *data-name* *ninja-symbol*)) (contract-month *data-name* date) 'N
+                                                                  cover-short (my-pretty-price (- short cover-short))))))
+           (push short-trade extended-trades)
+           (setf (svref record 2) -1)
+           (setf (svref record 3) (+ (svref record 3)(- short (getd date 'close))))
+           (setq short-trade nil short nil stop-short nil))
+
+
+      (setf (svref record 4) (+ (svref record 3) running-sum))
+      (setq running-sum (svref record 4))
+      (push record trading-dates)
+      (setq record nil)
+
+
+   );;;closes the dotimes
+
+     (with-open-file (stream path2 :direction :output :if-exists :supersede :if-does-not-exist :create)
+     (dolist (ith trading-dates)
+     (format stream "~A\,~F\,~D\,~D,~D~%"
+           (svref ith 0) (svref ith 1) (svref ith 2) (round (* (index-point-value)(svref ith 3)))
+           (round (* (index-point-value) (svref ith 4))))
+     ))
+
+   ;;;;apply commission of $75 per round turn and slippage of 0 ticks per round turn.
+  (setq trades (mapcar #'(lambda (s) (- s (/ *day-commission* (index-point-value)) (* 0 (index-tick-size)))) trades))
+
+  (with-open-file (str outfile :direction :output :if-exists :supersede :if-does-not-exist :create)
+
+   (setq losers (remove-if #'plusp trades) winners (remove-if #'zerop (remove-if #'minusp trades))
+         ave-win   (/ (* (list-sum winners) (or (index-point-value) 1)) (if (zerop (length winners)) 1 (length winners)))
+         ave-loss  (* (/ (list-sum losers) (if (zerop (length losers)) 1 (length losers))) (or (index-point-value) 1))
+          )
+;   (format str "~A traded from ~A to ~A~%" *data-name* (add-mkt-days date2 (- num)) date2)
+    (format str "~A traded from ~A to ~A~%" (index-lname) (date-convert (add-mkt-days date2 (- num)))(date-convert date2))
+    (format str "FEATURES= ~A  NUM MARKETS IN WAREHOUSE= ~A~%" features (length (num-markets-in-warehouse3 daytrades)))
+    (format str "NUM TRADES IN WAREHOUSE= ~A  ENTRY FACTOR= ~5,3,0,'*,' F~%" (length daytrades) *entry-factor*)
+    (format str "STOP LOSS FACTOR= ~5,3,0,'*,' F~%" *stop-loss-day*)
+      (format str "P/L= ~16D  NUMBER TRADES=  ~6D    ACCURACY=        ~,1,2,'*,' F%~%~
+        P/L PER TRADE= ~6D  AVERAGE GAIN= ~8D    AVERAGE LOSS=~8D~%~
+        PAYOFF RATIO=   ~5,2,0,'*,' F  ~
+        LARGEST LOSS=  ~7D    LARGEST GAIN= ~7D~%~
+        PROFIT FACTOR=   ~,2,0,'*,' F  %DAYS IN TRADE=    ~F    COMMISSION=        ~D~%~
+        DRAWDOWN= ~11D  $/contract= ~10D    STOPPED OUT=    ~,1,2,'*,' F%"
+
+       (round (* (list-sum trades) (or (index-point-value) 1))) (length trades)
+       (/ (- (length trades) (length losers))
+          (if (zerop (length trades)) 1 (length trades)))
+
+       (round (/  (* (list-sum trades) (or (index-point-value) 1)) (if (zerop (length trades)) 1 (length trades))))
+       (round ave-win)
+       (round ave-loss)
+       (abs (if (zerop ave-loss) 0 (/ ave-win ave-loss)))
+       (round (* (or (min* losers) 0) (or (index-point-value) 1)))
+
+       (round (* (or (max* winners) 0)(or (index-point-value) 1)))
+       (/ (* (length winners) ave-win) (* (if (zerop (length losers)) 1 (length losers))
+                                          (abs (if (zerop ave-loss) 1 ave-loss) )))
+      (my-round (* 100 (/ (length trades) num)) 1) *day-commission*
+      (setq draw (round (* (drawdown trades)(or (index-point-value) 1))))
+       (if (plusp (list-sum trades))
+          (round (optimal-f (mapcar #'(lambda (s) (* s (or (index-point-value) 1))) trades))) 0)
+       (/ (count 'S (mapcar #'(lambda(s1) (svref s1 6)) extended-trades)) (max (length extended-trades) 1))
+         )
+
+     (format str "~%~%MIN INITIAL $=     ~5D" (* 1000 (ceiling (* 3 (abs draw)) 1000)))
+ ;    (format T "List-sum trades= ~A~%" (list-sum trades))
+ ;    (format T "dates-diff = ~A~%" (subtract-dates (add-mkt-days date2 (- num)) date2))
+ ;    (format T "init-acct- ~A~%" (* 1000 (ceiling (* 3 (abs draw)) 1000)))
+     (format str "~%AVE ANNUAL RETURN= ~5,1,2,'*,' F%"
+           (/ (/ (* (list-sum trades) (or (index-point-value) 1))
+                       (/ (subtract-dates (add-mkt-days date2 (- num)) date2)
+                          365.25))
+                    (* 1000 (ceiling (max 1 (* 3 (abs draw))) 1000))) )
+  ;   (setq trades1 trades)
+
+ ;      (multiple-value-setq (draw-ave draw-90)(monte-carlo-drawdown trades))
+ ;      (setq draw-ave (* draw-ave (index-point-value)) draw-90 (* draw-90 (index-point-value)))
+ ;     (format str "~%~%MEDIAN DRAWDOWN= ~A~%90 PERCENTILE DRAWDOWN= ~A" draw-ave draw-90) 
+
+   (with-open-file (stream path1 :direction :output :if-exists :supersede :if-does-not-exist :create)
+
+    (dolist (ith extended-trades)
+
+     (format stream "~A\,~A\,~F\,~A\,~A\,~A\,~A\,~F\,~F\,~D~%"
+         (svref ith 0)(svref ith 1)(svref ith 2)(svref ith 3)(svref ith 4)(svref ith 5)
+         (svref ith 6)(svref ith 7)(svref ith 8)(round (* (index-point-value) (svref ith 8))))
+        ));;;closes the with-open-file
+  );;;closes the when outfile
+
+  (values (round (* (list-sum trades) (or (index-point-value) 1)))
+          (length trades) trades)
+   ))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+(defun day-trade-bins3 ( &rest features)
+  (let (bin path)
+
+
+;  (setq path (string-append *upper-dir-warehouse* "daytradewarehouse3.dat"))
+ (setq path (string-append *upper-dir-warehouse* (format nil "~A" *data-name*) "daytrades3.dat"))
+
+
+  (maind-x)(set-cat-list)
+  (setq daytrades nil day-bin-codes nil)(clrhash *day-trade-warehouse3*)
+    (with-open-file (str path :direction :input)
+      (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+       (push record daytrades)))
+
+
+;;;trads are stored without commission deducted
+;;;
+;    (dolist (record daytrades)
+;     (setf (svref record 19) (- (svref record 19) *day-commission*)))
+
+;;record is a vector of length 20 that represents a trade and its initial indicator values
+;;;;now all the trades are in the list daytrades.
+;;;we now assign/sort the trades into bins
+;;;basically process a record list into a code or bin
+;;;and create a code
+
+   (dolist (record daytrades)
+     (setq bin (encode-day-trades3 record features))
+     (pushnew bin day-bin-codes :test #'equal)
+     (cond ((gethash bin *day-trade-warehouse3*)
+            (ifn (member record (gethash bin *day-trade-warehouse3*) :test #'equalp)
+                 (setf (gethash bin *day-trade-warehouse3*)
+                       (cons record (gethash bin *day-trade-warehouse3*)))))
+           ((not (gethash bin *day-trade-warehouse3*))
+             (setf (gethash bin *day-trade-warehouse3*)
+              (list record)))))
+
+    (format T  "~%FEATURES = ~A~%" features)
+    (rank-daytrade-bins-by-profit3 daytrades)
+
+
+  ))
+
+
+(defun encode-day-trades3 (record features)
+  (let (bin-list)
+
+    (dolist (ith features)
+     (case ith
+      ;;;;number 1 is the direction and must be included
+      (1 (push (svref record 2) bin-list));;;adds the direction
+
+;;;;Feature 2 has 5 levels ;this is the volatility ratio of 4 days to 63 days
+      (2 (cond ((< (svref record 4) .70) (push 2 bin-list))
+               ((and (>= (svref record 4) .70)(< (svref record 4) .90)) (push 1 bin-list))
+               ((and (>= (svref record 4) .90)(< (svref record 4) 1.1)) (push 0 bin-list))
+               ((and (>= (svref record 4) 1.10)(< (svref record 4) 1.30)) (push -1 bin-list))
+               ((>= (svref record 4) 1.30)(push -2 bin-list))))
+ 
+;;;;Feature 3 with 9 levels bar type
+      (3 (push (svref record 5) bin-list))
+
+;;;;Feature 4 with 6 levels is the stochastic with parameter 21
+  
+      (4 (cond ((<= (svref record 6) 10) (push 3 bin-list))
+               ((and (> (svref record 6) 10)(<= (svref record 6) 30)) (push 2 bin-list))
+               ((and (> (svref record 6) 30)(<= (svref record 6) 50)) (push 1 bin-list))
+               ((and (> (svref record 6) 50)(<= (svref record 6) 70)) (push -1 bin-list))
+               ((and (> (svref record 6) 70)(< (svref record 6) 90)) (push -2 bin-list))
+               ((>= (svref record 6) 90) (push -3 bin-list))))
+
+;;;;Feature 5 is a roc-index date 5 21
+       (5 (push (svref record 7) bin-list))
+;;;Feature 6 is roc-index date 21 252
+       (6 (push (svref record 8) bin-list))
+;;;Feature 7 is Gann-slope-index 5 63
+       (7 (push (svref record 9) bin-list))
+;;;Feature 8 with 6 levels pivot-index
+       (8 (push (svref record 10) bin-list))
+ ;;Feature 9 is range-index
+       (9 (push (svref record 11) bin-list))
+
+;;;Feature 10 with 5 levels 2-bar index date-1
+       (10  (push (svref record 12) bin-list))
+;;; feature 11 is the day-bar-type date-1
+       (11 (push (svref record 13) bin-list))
+;;Feature 12 reflect3 date 3
+       (12  (push (svref record 14)  bin-list))
+
+ ;;;;Feature 13 Gann-slope-index 9 63
+       (13 (push (svref record 15) bin-list))
+
+;;;;Feature 14 with 5 levels (pivot-index for the previous day)
+       (14  (push (svref record 16) bin-list))
+
+                ));;;closes the case and the dolist over features
+
+      (reverse bin-list)
+ ))
+
+
+
+;;;requires a candidate list to add to the base features
+(defun daytrades-add-bestone-in3 (base-features candidate-features markets &optional (period 3024))
+  (let (winners-list (result 0) tdate)
+    (maind-x) (set-cat-list)
+;   (apply #'day-trade-bins3 base-features)
+  (dolist (ith candidate-features)
+    (setq result 0)
+    (dolist (kth markets)
+        (set-market kth)
+        (setq tdate (car (last (month-days (get-latest-index-date)))))
+        (setq result (+ result (daytrade-simulation-test3 kth tdate period (append base-features (list ith)))))
+          )
+     (setq winners-list (acons  result ith winners-list))
+     (format T "~%winners-list= ~A~%" winners-list)
+    )
+    (vsort winners-list #'> 'car)
+   (format T "Most Valuable Feature = ~A~%" (cdar winners-list))
+  (format T "Least Valuable Feature = ~A~%" (cdar (last winners-list)))
+  (format T "Winners List = ~A ~%" winners-list)
+ winners-list
+ ))
+
+
+;;;requires a candidate list to add to the base features
+;;;this function only looks at separability not predictability
+(defun daytrades-add-one-in3 (base-features candidate-features)
+  (let (winners-list (result 0) average-profit ignore single-bins)
+ 
+  (dolist (ith candidate-features)
+    (multiple-value-setq (result ignore average-profit single-bins)
+           (apply #'day-trade-bins3 (append base-features (list ith))))
+    (setq result (float (/ result (sqrt (length day-bin-codes)))))
+    (setq winners-list (cons (list result ith average-profit single-bins) winners-list))
+    )
+    (vsort winners-list #'> 'car)
+   (format T "Most Valuable Feature = ~A~%" (cdar winners-list))
+  (format T "Least Valuable Feature = ~A~%" (cdar (last winners-list)))
+  (format T "Winners List = ~A ~%" winners-list)
+   winners-list
+ ))
+
+
+;;;requires a base features list
+(defun daytrades-leave-worstone-out3 (base-features markets &optional (period 3024))
+  (let (winners-list (result 0) tdate)
+
+;  (apply #'day-trade-bins3 base-features)
+
+  (dolist (ith base-features)
+  ( setq result 0)
+  (dolist (kth markets)
+    (setq tdate (car (last (month-days (get-latest-index-date)))))
+    (setq result (+ result (daytrade-simulation-test3 kth tdate period (remove ith base-features))))
+    )
+    (setq winners-list (acons result ith winners-list))
+    )
+  (vsort winners-list #'> 'car)
+  (format T "Most Valuable Feature = ~A~%" (cdar (last winners-list)))
+  (format T "Least Valuable Feature = ~A~%" (cdar winners-list))
+  (format T "Winners List = ~A ~%" winners-list)
+  winners-list
+ ))
+
+
+;;;requires a base features list
+(defun daytrades-leave-one-out3 (base-features)
+  (let (winners-list (result 0) ignore average-profit single-bins)
+ 
+;  (apply #'day-trade-bins4 base-features)
+
+  (dolist (ith base-features)
+    (multiple-value-setq (result ignore average-profit single-bins)
+                    (apply #'day-trade-bins3 (remove ith base-features)))
+    (setq result (float (/ result (sqrt (length day-bin-codes)))))
+    (setq winners-list (cons (list result ith average-profit single-bins) winners-list))
+    )
+  (vsort winners-list #'> 'car)
+  (format T "Most Valuable Feature = ~A~%" (second (car (last winners-list))))
+  (format T "Least Valuable Feature = ~A~%" (second (car winners-list)))
+  (format T "Winners List = ~A ~%" winners-list)
+  winners-list
+ ))
+
+
+(defun find-best-indicator-set3 (markets &optional (period 3500))
+  (let (base-list candidate-list winners-list (result 0) tdate
+         (pathout (string-append *config-dir* "day-features.dat")))
+    (if (probe-file pathout)(delete-file pathout))
+    (dolist (market markets)
+    (set-market  market) (setq result 0)
+    (if (and period (> period (cdr (assoc *data-name* *market-days-available*))))
+        (setq period nil))
+    (ifn period (setq period (cdr (assoc *data-name* *market-days-available*))))
+    (setq base-list '(1) candidate-list '(2 3 4 5 6 7 8 9 10 11 12 13 14))
+    (loop
+     (setq winners-list (daytrades-add-one-in3 base-list candidate-list))
+     (setq base-list (append base-list (list (second (car winners-list)))))
+     (setq candidate-list (remove (second (car winners-list)) candidate-list))
+     (setq result (fourth (car winners-list)));;;fraction of single trade bins
+     (if (or (not candidate-list)(> result .90))
+         (return))
+    )
+    (format T "First stage winners-list= ~A" winners-list)
+
+    (setq tdate (car (last (month-days (get-latest-index-date)))))
+  
+   (loop     
+    
+      (if (< (fourth (car winners-list)) .70)(return))
+      (setq winners-list (daytrades-leave-one-out3 base-list))    
+      (if (neql (cdr (car winners-list)) 1)
+              (setq base-list (remove (second (car winners-list)) base-list))
+              (setq base-list (remove (second (second winners-list)) base-list)))
+         )
+     (format T "~%Best indicator set = ~A~%" base-list)
+     (daytrade-simulation-test3  market tdate period base-list)
+     (format T "~%Best indicator set = ~A~%" base-list)
+     (with-open-file (str pathout :direction :output :if-exists :append :if-does-not-exist :create)
+       (format str "~A ~%" (cons market base-list)))
+)
+    ))
+
+
+
+
+(defun rank-daytrade-bins-by-profit3 (daytrades)
+  (let (contents (result 0) profit-list (all-winners 0)(all-losers 0)(twr 1)
+       (winners 0)(losers 0) (counter 0) (only-one 0) (num-in-winning-bins 0))
+   (dolist (ith day-bin-codes)
+     (setq contents (gethash ith *day-trade-warehouse3*))
+     (setq result 0 counter 0 twr 1)
+
+     (if (= (length contents) 1) (incf only-one))
+     (dolist (kth contents)
+         (setq result (+ result (svref kth 19)))
+         (if (plusp (svref kth 19)) (incf counter))
+         (setq twr (* twr (+ 1 (/ (if (plusp (svref kth 2))
+                                 (- (svref kth 18) (svref kth 3))
+                               (- (svref kth 3) (svref kth 18)))
+                             (svref kth 3)))))
+
+         ) ;;;closes dolist over contents
+      (if (and (plusp result)(> twr 1)) (setq num-in-winning-bins (+ num-in-winning-bins (length contents))))
+
+
+     (setq profit-list
+      (cons (list result twr (/ result (length contents))
+                (/ counter (length contents)) (length contents) ith) profit-list)));;;closes dolist over day-bin-codes
+
+    (dolist (kth daytrades)
+       (if (plusp (svref kth 19)) (setq all-winners (+ all-winners (svref kth 19)))
+           (setq all-losers (+ all-losers (svref kth 19)))))
+
+     (setq counter 0)
+     (dolist (jth profit-list)
+         (if (and (plusp (car jth))(> (second jth) 1))
+             (setq winners (+ winners (car jth)) counter (+ 1 counter))
+         (setq losers (+ losers (car jth)))))
+
+     (format T "NUMBER OF TRADES = ~A  in ~D MARKETS~%" (length daytrades)(length (num-markets-in-warehouse3 daytrades)))
+     (format T "ALL WINNERS = ~A   ALL LOSERS = ~A~%~%" all-winners all-losers)
+     (format T "NUMBER of ALL BINS = ~D~%" (length day-bin-codes))
+     (format T "RATIO OF TRADES TO BINS = ~F~%" (my-round (/ (length daytrades)(length day-bin-codes)) 1))
+     (format T "WINNING BIN PROFITS = ~A  IN ~D WINNING BINS~%~%" winners counter)
+     (format T "RATIO OF BIN PROFITS TO ALL WINNERS = ~F~%" (my-round (/ winners all-winners) 2))
+     (format T "NUMBER OF TRADES IN THE WINNING BINS = ~D~%" num-in-winning-bins)
+     (format T "PROFIT PER TRADE IN WINNING BINS = ~A~%~%" (if (zerop num-in-winning-bins) 0 (round (/ winners num-in-winning-bins))))
+     (format T "NUMBER OF BINS WITH ONLY 1 TRADE = ~D~%" only-one)
+     (format T "RATIO OF ONLY 1 TRADE BINS TO ALL BINS = ~F~%~%" (my-round (/ only-one (length day-bin-codes)) 2))
+     (format T "RATIO OF ONLY 1 TRADE BINS TO ALL TRADES = ~F~%~%" (my-round (/ only-one (length daytrades)) 2))
+
+    (values (round winners)(round (+ all-winners all-losers))(if (zerop num-in-winning-bins) 0 (round (/ winners num-in-winning-bins)))
+           (my-round (/ only-one (length daytrades)) 2)) 
+       
+
+ ))
+
+
+;;;;this function expects that you have run (day-trade-bins ...) already
+(defun display-daytrade-bins-by-expected-value3 ()
+  (let (contents expected-value-list result (path1 (string-append *output-upper-dir* "daytrade-expected-value3.dat")))
+   (dolist (ith day-bin-codes)
+     (setq contents
+           (gethash ith *day-trade-warehouse3*))
+     (setq result 0 )
+     (dolist (kth contents)
+         (setq result (+ result (svref kth 19))))
+     (setq expected-value-list (cons (list (/ result (length contents)) ith (length contents) result) expected-value-list)));;;closes the dolist over bin-codes
+     (with-open-file (stream path1 :direction :output :if-exists :supersede :if-does-not-exist :create)
+         (vsort expected-value-list #'> 'car)
+         (format stream "Profit/trade  Bin      NUM   Profit~%~%")
+         (dolist (jth expected-value-list)
+             (format stream "~5D        ~10A  ~4D     ~7D~%"
+                (round (car jth)) (cadr jth) (third jth) (round (fourth jth))))
+         (format stream "~%Trades = ~D   Profit = ~D"
+             (list-sum (mapcar #'(lambda(s) (nth 2 s)) expected-value-list))
+             (round (list-sum (mapcar #'(lambda(s) (nth 3 s)) expected-value-list))))
+                ) ;;;;closes the with-open-file
+ ))
+
+;;;returns list of markets in the warehouse
+(defun num-markets-in-warehouse3 (swings)
+  (let (markets-in-training-data)
+   (dolist (record swings)
+      (pushnew (svref record 0) markets-in-training-data)
+      )
+   markets-in-training-data))
+
+;;;this function works for both daytrades and swings
+;;;does assume you have already run swing-trade-bins and/or day-trade-bins
+(defun num-trades-in-warehouse3 (market swings)
+  (let ((ctr 0) start-dates end-dates first-date last-date )
+
+    (dolist (record swings)
+      (when (eql market (svref record 0))
+           (incf ctr)
+           (pushnew (svref record 1) start-dates :test #'equal)
+           (pushnew (svref record 17) end-dates :test #'equal)
+
+           ))
+    (setq first-date (car (sort start-dates #'< )))
+    (setq last-date (car (sort end-dates #'>)))
+
+      (values ctr first-date last-date)
+
+      ))
+;;;
+(defun display-num-trades-by-market3 (swings)
+   (let (training-data markets-list num-trades first-date last-date
+         (path (string-append *output-upper-dir* "market-trade-data.dat"))
+      )
+    (setq training-data (num-markets-in-warehouse3 swings))
+    (dolist (ith training-data)
+      (multiple-value-setq (num-trades first-date last-date )(num-trades-in-warehouse3 ith swings))
+      (setq markets-list
+           (cons (list ith (gain-loss-trades-in-warehouse3 ith swings) num-trades first-date last-date) markets-list))
+       );;closes the dolist
+    (vsort markets-list #'> 'second)
+   ; (vsort markets-list #'< #'(lambda(s)(first-char-code (car s))))
+    (with-open-file (str path :direction :output :if-exists :supersede :if-does-not-exist :create)
+     (format str "Market    #trades  Sum $P&L Ave $P&L    FIRST     LAST~%")
+    (dolist (jth markets-list)
+     (format str"~%~10A ~4D ~10D   ~4D    ~A  ~A"
+     (car jth) (third jth)(second jth) (round (/ (second jth)(third jth)))(fourth jth)(fifth jth))))
+  ));;closes the let and defun.
+
+(defun gain-loss-trades-in-warehouse3 (market swings)
+  (let ((pl 0))
+     (dolist (record swings)
+       (if (eql market (svref record 0)) (setq pl (+ pl (svref record 19)))))
+    pl))
+
+;;;reads the daytradewarehouse3.dat
+;;;reads and adds the new trades file
+;;;only adds the new trades if it is not already there.
+;;;writes out the new warehouse with the added trades.
+;;;
+(defun add-day-trades3 (new-trades-path)
+  (let ((path-out (string-append *upper-dir-warehouse* "daytradewarehouse3.dat")) trades)
+
+       (if (probe-file path-out)
+        (with-open-file (str path-out :direction :input)
+         (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+          (push record trades))
+          ))
+
+     (with-open-file (str new-trades-path :direction :input)
+         (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+          (pushnew record trades :test #'equalp)
+          ))
+
+    (with-open-file (stream path-out :direction :output :if-exists :supersede :if-does-not-exist :create)
+     (dolist (ith trades)
+       (format stream "~S~%" ith))
+       ) ;;;closes the with-open-file
+));;closes the let and defun
+
+
+;;;;this function will remove duplicate S-expressions from a file
+;;;of S-expressions.
+;;;It was written for trades in the warehouse but is actually much more general.
+;;;must use #'equalp if the s-expressions are vectors
+(defun remove-duplicate-trades3 (path)
+   (let (trades)
+
+    (with-open-file (str path :direction :input)
+      (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+       (push record trades)))
+   (setq trades (remove-duplicates trades :test #'equalp))
+
+   (with-open-file (stream path :direction :output :if-exists :supersede :if-does-not-exist :create)
+      (dolist (ith trades)
+        (format stream "~S~%" ith)))
+
+))
+
+
+(defun remove-daytrade-market3 (market)
+  (let (trades path)
+   (setq path (string-append *upper-dir-warehouse* "daytradewarehouse3.dat"))
+  (maind-x)(set-cat-list)
+
+    (with-open-file (str path :direction :input)
+      (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+       (push record trades)))
+
+   (setq trades (remove-if #'(lambda (s) (eql (svref s 0) market)) trades))
+   (with-open-file (str path :direction :output :if-exists :supersede)
+       (dolist (ith trades)
+        (format str "~S~%" ith)))
+ ))
+
+;;;this function removes all trades for a single market and replaces them
+;;;with a new file of trades
+(defun replace-daytrade-market3 (market &aux path)
+
+  (remove-daytrade-market3 market)
+  (setq path (string-append *upper-dir-warehouse* (format nil "~S" market) "daytrades3.dat"))
+  (add-day-trades3 path)
+)
+
+;;;;returns if date is bullish or bearish and expected value and accuracy and number in daytradewarehouse
+(defun bin-classifier-daytrades3 (date features)
+  (let (record bin (result 0) (counter 0) contents epsignal
+        (longs 0)(shorts 0) (results-long 0) (results-short 0) (nxdate (getd date 'ndate))
+        (num-winners-long 0)(num-winners-short 0))
+    (setq record (create-daytrade-entry-record-list3 date 1 nil))
+    (setq record (apply #'vector (append record '(nil nil nil))))
+
+    (setq bin (encode-day-trades3 record features))
+    (setq contents (gethash bin *day-trade-warehouse3*)) ;;;look for bin with long trades first
+    ;;; then look for short trades. rule All bins are long or short trades
+    (setf (nth 0 bin) -1)
+    (setq contents (append (gethash bin *day-trade-warehouse3*) contents))
+;;;here we remove any trades in the same market with the same next day
+   (setq contents
+    (remove-if #'(lambda(s1) (and (eql *data-name* (svref s1 0))
+                                  (eql nxdate (svref s1 1)))) contents))
+ ;   (remove-if #'(lambda (s1) (> (svref s1 1) date)) contents))
+
+   (dolist (kth contents)
+
+     (when (eql (svref kth 2) 1)
+      (incf longs) (setq results-long (+ results-long (svref kth 19))))
+
+    (when (and (eql (svref kth 2) 1)(plusp (svref kth 19)))
+       (incf num-winners-long))
+
+     (when (eql (svref kth 2) -1)
+      (incf shorts)(setq results-short (+ results-short (svref kth 19))))
+
+     (when (and (eql (svref kth 2) -1)(plusp (svref kth 19)))
+        (incf num-winners-short))
+        );;;closes dolist over contents
+  (setq result 0)
+  (dolist (jth contents)
+         (setq result (+ result (svref jth 19)))
+        (if (plusp (svref jth 19)) (incf counter))) ;;;closes dolist over contents
+
+  (cond ((and (plusp results-long)(plusp results-short)) (setq epsignal 'OK))
+        ((plusp results-long) (setq epsignal 'UP))
+        ((plusp results-short)(setq epsignal 'DOWN))
+        ((and (<= results-short 0)(<= results-long 0)) (setq epsignal 'AVOID))
+        ((not contents) (setq epsignal 'UNIQUE)))
+
+  (values epsignal longs results-long (if (zerop longs) 0 (/ num-winners-long longs))
+         shorts results-short
+          (if (zerop shorts) 0 (/ num-winners-short shorts))
+          bin)
+))
+
+
+;;;calculates the twr for a bin
+;;;must run #'day-trade-bins3 before running this function
+(defun day-bin-twr3 (bin)
+  (let ((twr 1))
+
+   (dolist (record (gethash bin *day-trade-warehouse3*))
+     (setq twr (* twr (+ 1 (/ (if (plusp (svref record 2))
+                                 (- (svref record 18) (svref record 3))
+                               (- (svref record 3) (svref record 18)))
+                             (svref record 3)))
+                           )))
+  twr
+))
+
+
+(defun find-best-daytrade3 (tdate &optional (output T)(output1 T)(date1 nil))
+  (let (risk  stop-short stop-long  entry-long entry-short
+        trade-direction  cover-short cover-long pacific-entry-time pacific-exit-time
+        pacific-cancel-time pacific-end-session-time  rjo-starter-path3
+        central-entry-time central-exit-time central-cancel-time central-end-session-time
+        action directive1 cannon-starter-path3 cannon-score-path3 foremost-starter-path3 foremost-starter2-path3
+         foremost-score-path3 btr-path3 kingsview-starter-path3
+        ninja-score-path3 ninja-entry-path3 daniels-starter-path3 daniels-score-path3 apex-path3
+        rjobrien-starter-path3 rjobrien-score-path3
+         ; exit-time entry-time cancel-time
+          oec-symbol oco-code ninja-starter-path3 (time-zone "CT") offset
+        )
+    (declare (special epsignal longs shorts long-gains short-gains long-acc short-acc twr-short twr-long counter))
+
+    (setq *entry-factor* .764 *stop-loss-day* .800) ;;;  1.0557)
+    (setq cannon-score-path3 (string-append *daily-output-dir* "cannon-score.csv")
+          cannon-starter-path3 (string-append *daily-output-dir* "cannon-starter.csv")
+         foremost-starter-path3 (string-append *daily-output-dir* "foremost-starter.csv")
+          foremost-starter2-path3 (string-append *daily-output-dir* "foremost-starter2.csv")
+          foremost-score-path3 (string-append *daily-output-dir* "foremost-score.csv")
+          btr-path3 (string-append *daily-output-dir* "btr-score.csv")
+          kingsview-starter-path3 (string-append *daily-output-dir* "kingsview-starter.csv")
+;          kingsview-starter2-path3 (string-append *daily-output-dir* "kingsview-starter2.csv")
+
+	      ninja-score-path3 (string-append *ninja-output-dir* "ninja-score-" (format nil "~A" date1) ".csv")
+          daniels-starter-path3 (string-append *daily-output-dir* "daniels-starter.csv")
+          daniels-score-path3 (string-append *daily-output-dir* "daniels-score.csv")
+          apex-path3 (string-append *daily-output-dir* "apex-starter.csv")
+          ninja-starter-path3 (string-append *ninja-output-dir* "ninja-starter-" (format nil "~A" date1)  ".csv");;;for Pat Aucoin and NinjaScript
+          ninja-entry-path3 (string-append *ninja-output-dir* "ninja-entry-" (format nil "~A" date1) ".csv")
+	      rjo-starter-path3 (string-append *daily-output-dir* "rjo-starter.csv");;;for Susan Green
+          rjobrien-starter-path3 (string-append *daily-output-dir* "rjobrien-starter.csv")
+          rjobrien-score-path3 (string-append *daily-output-dir* "rjobrien-score.csv")
+	  )
+
+   (if (and (member epsignal '(OK UP))(> longs 0)(>= (/ long-gains longs) 100.0)(> twr-long 1.0))
+         (push 'UP trade-direction)(push 'FT trade-direction))
+   (if (and (member epsignal '(OK DOWN))(> shorts 0)(>= (/ short-gains shorts) 100.0)(> twr-short 1.0))
+          (push 'DN trade-direction)(push 'FT trade-direction))
+
+
+   (multiple-value-setq (entry-short entry-long) (vprices tdate 4 *entry-factor* 1))
+   (multiple-value-setq (stop-long stop-short)(vprices tdate 4 *stop-loss-day* 1))
+
+   (setq risk (*  .5 (- stop-short stop-long)))
+
+   (setq stop-long (- entry-long risk) stop-short (+ entry-short risk))
+
+
+            (when (if (member *data-name* '(US.D1B TY.D1B))
+                  (> (round (* (-  (convert-to-decimal (convert-to-32 entry-long))
+                                   (convert-to-decimal (convert-to-32 stop-long))) (index-point-value))) *max-day-risk*)
+                 (> (round (* (-  (* (nth 4 (assoc *data-name* *C-list*)) (round stop-short (nth 4 (assoc *data-name* *C-list*))))
+                                  (* (nth 4 (assoc *data-name* *C-list*)) (round entry-short (nth 4 (assoc *data-name* *C-list*)))))
+                                  (index-point-value))) *max-day-risk*)) (push "NOT TODAY" action))
+
+             (cond ((and (member 'UP trade-direction) (member 'DN trade-direction)))
+                   ((member 'UP trade-direction) (push "NOT SHORT" action))
+                   ((member 'DN trade-direction) (push "NOT LONG" action))
+                   (t (push "NOT TODAY" action)))
+
+
+
+
+
+         (setq action (cond ((member "NOT TODAY" action :test #'equal) "NOT TODAY")
+                            ((and (member "NOT LONG" action :test #'equal)
+                                  (member "NOT SHORT" action :test #'equal)) "NOT TODAY")
+                            ((member "NOT LONG" action :test #'equal)
+                             (incf counter) "NOT LONG")
+                            ((member "NOT SHORT" action :test #'equal)
+                              (incf counter) "NOT SHORT")
+                            (t (incf counter) "OK      ")))
+
+      (format output " ~A~%" action)
+      (format output " Num Longs = ~D P/L for Longs = ~A Accuracy for Longs = ~A~%" longs long-gains long-acc)
+      (format output " Num Shorts = ~D P/L for shorts = ~A Accuracy for Short = ~A~%" shorts short-gains short-acc)
+      (setq directive1 (string-append "~7," (format nil "~A" (nth 1 (assoc *data-name* *C-list*))) ",0,'*,' F"))
+
+      (if (member *data-name* '(US.D1B TY.D1B))
+          (format output "~%SELL= ~7@A  STOP= ~7@A  SHORT-RISK= ~D~% BUY= ~7@A  STOP= ~7@A   LONG-RISK= ~D~%"
+           (convert-to-32nds entry-short) (convert-to-32nds stop-short)
+           (round (* (-  (convert-to-decimal (convert-to-32 stop-short))(convert-to-decimal (convert-to-32 entry-short)))(index-point-value)))
+           (convert-to-32nds entry-long)(convert-to-32nds stop-long)
+           (round (* (-  (convert-to-decimal (convert-to-32 entry-long))
+                         (convert-to-decimal (convert-to-32 stop-long))
+                       ) (index-point-value))))
+         (format output
+
+            (string-append "~%SELL= " directive1 " STOP= " directive1
+                           " SHORT-RISK= ~D~% BUY= " directive1 " STOP= " directive1 "  LONG-RISK= ~D~%")
+            (* (nth 4 (assoc *data-name* *C-list*)) (round entry-short (nth 4 (assoc *data-name* *C-list*))))
+            (* (nth 4 (assoc *data-name* *C-list*)) (round stop-short (nth 4 (assoc *data-name* *C-list*))))
+
+            (round (* (-  (* (nth 4 (assoc *data-name* *C-list*)) (round stop-short (nth 4 (assoc *data-name* *C-list*))))
+                          (* (nth 4 (assoc *data-name* *C-list*)) (round entry-short (nth 4 (assoc *data-name* *C-list*))))
+                             )  (index-point-value)))
+            (* (nth 4 (assoc *data-name* *C-list*)) (round entry-long (nth 4 (assoc *data-name* *C-list*))))
+            (* (nth 4 (assoc *data-name* *C-list*)) (round stop-long (nth 4 (assoc *data-name* *C-list*))))
+
+            (round (* (-  (* (nth 4 (assoc *data-name* *C-list*)) (round entry-long (nth 4 (assoc *data-name* *C-list*))))
+                          (* (nth 4 (assoc *data-name* *C-list*)) (round stop-long (nth 4 (assoc *data-name* *C-list*))))
+                       )  (index-point-value)))
+            ))
+
+     (setq
+           oec-symbol (make-oec-symbol *data-name* tdate)
+           pacific-entry-time "default" ;(second (assoc *data-name* *oec-market-times-list*)) ;;this is the release time
+	   pacific-end-session-time "default" ;  (string-append (date-convert date1) " " (third (assoc *data-name* *cannon-market-times-list*)))
+   ;        pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) 0))
+           pacific-cancel-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) -26))
+	   oco-code (format nil "OSO~A" counter))
+      (setq
+
+           central-entry-time "default" ;(second (assoc *data-name* *oec-market-times-list*)) ;;this is the release time
+	   central-end-session-time "default" ; (string-append (date-convert date1) " " (third (assoc *data-name* *foremost-market-times-list*)))
+   ;        central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) 0))
+           central-cancel-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) -26))
+	   oco-code (format nil "OSO~A" counter)) ;;;(add-minutes1 exit-time -30))
+      (format T "~%~A  ~A~%" *data-name* action)
+     (cond ((equal action "OK      ")
+             (write-xml-record tdate "tblTradeRecs" 'DAY 'SHORT date1 entry-short stop-short cover-short output1)
+             (write-xml-record tdate "tblTradeRecs" 'DAY 'LONG date1 entry-long stop-long cover-long output1)
+
+             (when (member *data-name* *score-list*)
+
+               (setq offset (random-choice -1 0)
+                     pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+               (write-oec-short  cannon-score-path3 oec-symbol *cannon-score-block-acct* *cannon-score-qty* entry-short stop-short pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long  cannon-score-path3 oec-symbol *cannon-score-block-acct* *cannon-score-qty* entry-long stop-long pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+               (setq offset (random-choice -1 0)
+                     pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+               (write-oec-short  daniels-score-path3 oec-symbol *daniels-score-block-acct* *daniels-score-qty* entry-short stop-short pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long  daniels-score-path3 oec-symbol *daniels-score-block-acct* *daniels-score-qty* entry-long stop-long pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+
+               (setq offset (random-choice -1 0)
+                     central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+               (write-oec-short btr-path3 oec-symbol *btr-score-block-acct* *btr-score-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long btr-path3 oec-symbol *btr-score-block-acct* *btr-score-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+
+               (setq offset (random-choice -1 0)
+                     central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+               (write-oec-short foremost-score-path3 oec-symbol *foremost-score-block-acct* *foremost-score-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long foremost-score-path3 oec-symbol *foremost-score-block-acct* *foremost-score-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+
+              (setq offset (random-choice -1 0)
+               central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+              (write-oec-short rjobrien-score-path3 oec-symbol *rjobrien-score-block-acct* *rjobrien-score-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+              (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+              (write-oec-long rjobrien-score-path3 oec-symbol *rjobrien-score-block-acct* *rjobrien-score-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+
+      	       (with-open-file (ninja-output ninja-score-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+	            	 (write-ninja-record ninja-output time-zone tdate date1 'SELL entry-short stop-short)
+                     (write-ninja-record ninja-output time-zone tdate date1 'BUY  entry-long stop-long))
+              );;;closes when
+             (when (member *data-name* *starter-list*)
+                 (setq offset (random-choice -1 0)
+                    pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+
+               (write-oec-short  cannon-starter-path3 oec-symbol *cannon-starter-block-acct* *cannon-starter-qty* entry-short stop-short pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long  cannon-starter-path3 oec-symbol *cannon-starter-block-acct* *cannon-starter-qty* entry-long stop-long pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+	            (with-open-file (ninja-output ninja-starter-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+	        	 (write-ninja-record ninja-output time-zone tdate date1 'SELL entry-short stop-short)
+                 (write-ninja-record ninja-output time-zone tdate date1 'BUY  entry-long stop-long))
+	          (with-open-file (rjo-output rjo-starter-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+	        	 (write-rjo-record rjo-output 'SELL entry-short stop-short)
+                 (write-rjo-record rjo-output 'BUY  entry-long stop-long))
+
+               (setq offset 1 ;(random-choice -1 0) set to 1 to guarantee house account exites after customers
+                     central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+
+               (write-oec-short foremost-starter-path3 oec-symbol *foremost-starter-block-acct* *foremost-starter-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long foremost-starter-path3 oec-symbol *foremost-starter-block-acct* *foremost-starter-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+                (setq offset (random-choice -1 0)
+                         central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+
+               (write-oec-short foremost-starter2-path3 oec-symbol *foremost-starter2-block-acct* *foremost-starter2-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long foremost-starter2-path3 oec-symbol *foremost-starter2-block-acct* *foremost-starter2-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+                (setq offset (random-choice -1 0)
+                 pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+
+               (write-oec-short daniels-starter-path3 oec-symbol *daniels-starter-block-acct* *daniels-starter-qty* entry-short stop-short pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long daniels-starter-path3 oec-symbol *daniels-starter-block-acct* *daniels-starter-qty* entry-long stop-long pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+               (setq offset (random-choice -1 0)
+                     central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+
+               (write-oec-short kingsview-starter-path3 oec-symbol *kingsview-starter-block-acct* *kingsview-starter-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long kingsview-starter-path3 oec-symbol *kingsview-starter-block-acct* *kingsview-starter-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+;               (write-oec-short kingsview-starter2-path3 oec-symbol *kingsview-starter2-block-acct* *kingsview-starter2-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+;               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+;               (write-oec-long kingsview-starter2-path3 oec-symbol *kingsview-starter2-block-acct* *kingsview-starter2-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+               (setq offset (random-choice -1 0)
+               central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+
+               (write-oec-short rjobrien-starter-path3 oec-symbol *rjobrien-starter-block-acct* *rjobrien-starter-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long rjobrien-starter-path3 oec-symbol *rjobrien-starter-block-acct* *rjobrien-starter-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+
+               (setq offset (random-choice -1 0)
+                   central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+
+               (write-oec-short apex-path3 oec-symbol *apex-starter-block-acct* *apex-starter-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+               (setq oco-code (format nil "OSO~A" (incf counter)));;need to add 1 to the OCO code if both buy and sell entries
+               (write-oec-long apex-path3 oec-symbol *apex-starter-block-acct* *apex-starter-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+             )
+             (when (member *data-name* *entry-list*)
+
+                (with-open-file (ninja-output ninja-entry-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+	        	 (write-ninja-record ninja-output time-zone tdate date1 'SELL entry-short stop-short)
+                 (write-ninja-record ninja-output time-zone tdate date1 'BUY  entry-long stop-long))
+
+             ))
+
+             ((equal action "NOT SHORT")
+              (write-xml-record tdate "tblTradeRecs" 'DAY 'LONG date1 entry-long stop-long cover-long output1)
+
+              (when (member *data-name* *score-list*)
+               (setq offset (random-choice -1 0)
+                 pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+               (write-oec-long  cannon-score-path3 oec-symbol *cannon-score-block-acct* *cannon-score-qty* entry-long stop-long pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+               (setq offset (random-choice -1 0)
+                 pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+               (write-oec-long  daniels-score-path3 oec-symbol *daniels-score-block-acct* *daniels-score-qty* entry-long stop-long pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+
+
+               (setq offset (random-choice -1 0)
+                  central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+               (write-oec-long btr-path3 oec-symbol *btr-score-block-acct* *btr-score-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+               (setq offset (random-choice -1 0)
+                  central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+               (write-oec-long foremost-score-path3 oec-symbol *foremost-score-block-acct* *foremost-score-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+
+               (setq offset (random-choice -1 0)
+                   central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+               (write-oec-long rjobrien-score-path3 oec-symbol *rjobrien-score-block-acct* *rjobrien-score-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+     	       (with-open-file (ninja-output ninja-score-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+	     	     (write-ninja-record ninja-output  time-zone tdate date1 'BUY entry-long stop-long))
+               ) ;;closes the when score
+
+              (when (member *data-name* *starter-list*)
+                 (setq offset (random-choice -1 0)
+                       pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+                 (write-oec-long  cannon-starter-path3 oec-symbol *cannon-starter-block-acct* *cannon-starter-qty* entry-long stop-long pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+		         (with-open-file (ninja-output ninja-starter-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+		          (write-ninja-record ninja-output  time-zone tdate date1 'BUY entry-long stop-long))
+
+                 (with-open-file (rjo-output rjo-starter-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+		                    (write-rjo-record rjo-output 'BUY entry-long stop-long))
+
+                (setq offset 1 ;(random-choice -1 0)
+                   central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+                (write-oec-long foremost-starter-path3 oec-symbol *foremost-starter-block-acct* *foremost-starter-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+                (setq offset (random-choice -1 0)
+                         central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+                (write-oec-long foremost-starter2-path3 oec-symbol *foremost-starter2-block-acct* *foremost-starter2-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+                (setq offset (random-choice -1 0)
+                       pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+
+                (write-oec-long daniels-starter-path3 oec-symbol *daniels-starter-block-acct* *daniels-starter-qty* entry-long stop-long pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+                (setq offset (random-choice -1 0)
+                         central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+
+                (write-oec-long kingsview-starter-path3 oec-symbol *kingsview-starter-block-acct* *kingsview-starter-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+ ;               (write-oec-long kingsview-starter2-path3 oec-symbol *kingsview-starter2-block-acct* *kingsview-starter2-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+
+                (setq offset (random-choice -1 0)
+                   central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+
+                (write-oec-long rjobrien-starter-path3 oec-symbol *rjobrien-starter-block-acct* *rjobrien-starter-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+                (setq offset (random-choice -1 0)
+                   central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+
+                (write-oec-long apex-path3 oec-symbol *apex-starter-block-acct* *apex-starter-qty* entry-long stop-long central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+              )
+               (when (member *data-name* *entry-list*)
+
+                (with-open-file (ninja-output ninja-entry-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+	                        (write-ninja-record ninja-output time-zone tdate date1 'BUY  entry-long stop-long))
+              )
+              )
+
+             ((equal action "NOT LONG")
+              (write-xml-record tdate "tblTradeRecs" 'DAY 'SHORT date1 entry-short stop-short cover-short output1)
+
+              (when (member *data-name* *score-list*)
+                 (setq offset (random-choice -1 0)
+                       pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+                 (write-oec-short  cannon-score-path3 oec-symbol *cannon-score-block-acct* *cannon-score-qty* entry-short stop-short pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+                 (setq offset (random-choice -1 0)
+                       pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+                 (write-oec-short  daniels-score-path3 oec-symbol *daniels-score-block-acct* *daniels-score-qty* entry-short stop-short pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+
+                 (setq offset (random-choice -1 0)
+                   central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+                 (write-oec-short btr-path3 oec-symbol *btr-score-block-acct* *btr-score-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+
+                 (setq offset (random-choice -1 0)
+                   central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+                 (write-oec-short foremost-score-path3 oec-symbol *foremost-score-block-acct* *foremost-score-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+
+                 (setq offset (random-choice -1 0)
+                   central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+                 (write-oec-short rjobrien-score-path3 oec-symbol *rjobrien-score-block-acct* *rjobrien-score-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+        	      (with-open-file (ninja-output ninja-score-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+    	          	 (write-ninja-record ninja-output time-zone tdate date1 'SELL entry-short stop-short))
+                 );;;closes the when score
+
+              (when (member *data-name* *starter-list*)
+                  (setq offset (random-choice -1 0)
+                        pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+                (write-oec-short  cannon-starter-path3 oec-symbol *cannon-starter-block-acct* *cannon-starter-qty* entry-short stop-short pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+	         	 (with-open-file (ninja-output ninja-starter-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+	            	 (write-ninja-record ninja-output time-zone tdate date1 'SELL entry-short stop-short))
+		         (with-open-file (rjo-output rjo-starter-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+	            	 (write-rjo-record rjo-output 'SELL entry-short stop-short))
+
+                  (setq offset 1 ; (random-choice -1 0)
+                   central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+                 (write-oec-short foremost-starter-path3 oec-symbol *foremost-starter-block-acct* *foremost-starter-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+                  (setq offset (random-choice -1 0)
+                   central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+                  (write-oec-short foremost-starter2-path3 oec-symbol *foremost-starter2-block-acct* *foremost-starter2-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+                 (setq offset (random-choice -1 0)
+                      pacific-exit-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *cannon-market-times-list*)) offset T)))
+                 (write-oec-short daniels-starter-path3 oec-symbol *daniels-starter-block-acct* *daniels-starter-qty* entry-short stop-short pacific-entry-time pacific-cancel-time pacific-exit-time pacific-end-session-time oco-code)
+
+                  (setq offset (random-choice -1 0)
+                       central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+                  (write-oec-short kingsview-starter-path3 oec-symbol *kingsview-starter-block-acct* *kingsview-starter-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+;                  (write-oec-short kingsview-starter2-path3 oec-symbol *kingsview-starter2-block-acct* *kingsview-starter2-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+                  (setq offset (random-choice -1 0)
+                        central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+                  (write-oec-short rjobrien-starter-path3 oec-symbol *rjobrien-starter-block-acct* *rjobrien-starter-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+                  (setq offset (random-choice -1 0)
+                        central-exit-time  (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)))
+                  (write-oec-short apex-path3 oec-symbol *apex-starter-block-acct* *apex-starter-qty* entry-short stop-short central-entry-time central-cancel-time central-exit-time central-end-session-time oco-code)
+
+               );;;closes the when
+             (when (member *data-name* *entry-list*)
+
+                (with-open-file (ninja-output ninja-entry-path3 :direction :output :if-exists :append :if-does-not-exist :create)
+	        	 (write-ninja-record ninja-output time-zone tdate date1 'SELL entry-short stop-short)
+                ))
+
+
+               ));;closes clause the cond
+
+
+      )) ;;;closes the let and the defun
+
+
+
+;;;time frames is a list of time-frames
+;;;markets-ll is a list of lists of markets
+;;;example '(*day-list* *swing-list* *position-list*)
+;;;each list corresponds to the time frame
+;;;this allow you to specify a different market list for each time frame
+;
+;(defun portfolio-simulation3 (time-frames date num markets-ll)
+;
+;   (do* ((mkts markets-ll (cdr mkts))
+;         (tmf time-frames (cdr tmf))
+;         (time-frame (car tmf) (car tmf))
+;         (markets (car mkts) (car mkts)))
+;       ((null tmf));
+;
+;       (dolist (ith markets)
+;         (case time-frame
+;            (position (position-simulation-test3 ith date num))
+;            (swing (swing-simulation-test3 ith date num))
+;            (day (daytrade-simulation-test3 ith date num))
+;            (epic (daytrade-simulation-test2 ith date num))
+;     )));
+
+
+;   (apply #'diary-composite3 time-frames markets-ll)
+;)
+
+
+;;;takes multiple markets and combines their diary files
+;;;provides a list of ALL dates
+(defun diary-composite3 (time-frames &rest markets-ll)
+ (let (paths  time-frame records record1 (running-sum 0)
+      (path-out nil) mkts type (num-trades 0)
+      (path-out1 (string-append *output-upper-dir* "p&ls.dat"))(path-out-dates (string-append *output-upper-dir* "dates.dat"))
+      )
+   (declare (special num-trades))
+   (maind-x)(set-cat-list)
+
+   (do* ((mkts markets-ll (cdr mkts))
+         (tmf time-frames (cdr tmf))
+         (time-frame (car tmf) (car tmf))
+         (markets (car mkts) (car mkts)))
+       ((null tmf))
+        (cond ((member time-frame '(epic forexday))(setq type 2 time-frame 'day))
+              ((eql time-frame 'day) (setq type 3))
+              ((eql time-frame 'day4) (setq type 4 time-frame 'day))
+              ((eql time-frame 'day5) (setq type 5 time-frame 'day))
+              ((eql time-frame 'day9) (setq type 9 time-frame 'day))
+              ((member time-frame '(swing))(setq type 4)))
+       (dolist (market markets)
+          (push (string-append *output-upper-dir*
+            (format nil "~A~(~A~)-diary~A.dat" market time-frame type)) paths));;;closes dolist over markets
+            );;closes the do over time-frames
+
+
+   (dolist (ith paths)
+     (when (probe-file ith)
+     (with-open-file (str ith :direction :input)
+      (do ((record (read-line str nil 'eof) (read-line str nil 'eof)))
+          ((eql record 'eof))
+
+        (setq record1 (mapcar #'(lambda(s) (read-from-string s)) (my-split-sequence #\, record)))
+        (if (assoc (car record1) records)
+            (setf (third (assoc (car record1) records))
+                  (+ (abs (third (assoc (car record1) records))) (abs (third record1)))
+              (fourth (assoc (car record1) records))
+              (+ (fourth (assoc (car record1) records)) (fourth record1))
+           ;   (fifth (assoc (car record1) records))
+           ;   (+ (fifth (assoc (car record1) records)) (fifth record1))
+              )
+         (push record1 records)));;closes the if and the do
+       ))) ;;closes with-open-file and the dolist over paths
+
+   (setq records (vsort records #'< 'car))
+
+   (setq num-trades 0)
+   (dolist (ith records)
+     (setq num-trades (+ (abs (third ith)) num-trades))
+     )
+
+;;;now calculate the running sum
+
+   (dolist (ith records)
+     (setf (fifth ith) (+ (fourth ith) running-sum))
+     (setq running-sum (fifth ith)))
+
+   (setq time-frames (mapcar #'(lambda (s) (format nil "~A" s)) time-frames))
+   (setq time-frame (apply #'string-append time-frames) time-frame (read-from-string time-frame))
+   (setq path-out (string-append *output-upper-dir* "diary-" (format nil "~(~A~)-" time-frame) "composite.csv"))
+
+   (if (probe-file path-out)
+       (delete-file path-out))
+    (if (probe-file path-out1)
+       (delete-file path-out1))
+
+
+   (with-open-file (stream path-out :direction :output :if-exists :supersede :if-does-not-exist :create)
+       (dolist (ith records)
+         (dotimes (jth 5)
+          (if (eql jth 4)(format stream "~A" (nth jth ith))
+             (if (/= jth 1)(format stream "~A\," (nth jth ith)))))
+          (format stream "~%")));;;closes the with-open-file
+
+   (with-open-file (stream1 path-out1 :direction :output :if-exists :supersede :if-does-not-exist :create)
+        (dolist (ith (reverse records))
+          (format stream1 "~A~%" (nth 3 ith))))
+
+   (with-open-file (stream2 path-out-dates :direction :output :if-exists :supersede :if-does-not-exist :create)
+        (dolist (ith (reverse records))
+          (format stream2 "~A~%" (nth 0 ith))))
+
+   (setq mkts nil)
+   (dolist (ith markets-ll)
+          (setq mkts (union ith mkts)))
+
+;   (setq records-test records
+;         mkts-test mkts
+;         path-out1-test path-out1
+;         time-frame-test time-frame)
+
+   (summary-gains-losses path-out1 path-out-dates time-frame (caar records) (caar (last records)) mkts)
+
+
+
+;   (shell (string-append "unix2dos ~/exitpoints/diary-" (format nil "~(~A~)-" time-frame) "composite.csv "
+;          "/home/mk-data/luis/" (format nil "~(~A~)-" time-frame) "diary-composite.csv"))
+;   (shell "unix2dos ~/exitpoints/summary.dat /home/mk-data/luis/summary.txt")
+;   (shell "unix2dos ~/exitpoints/optimal-f.csv /home/mk-data/luis/optimal-f.csv")
+))
+
+
+
+(defun build-daytrade-warehouse3 (markets)
+   (let (path)
+      (if (probe-file (string-append *upper-dir-warehouse* "daytradewarehouse3.backup"))
+           (delete-file (string-append *upper-dir-warehouse* "daytradewarehouse3.backup")))
+       (when (probe-file (string-append *upper-dir-warehouse* "daytradewarehouse3.dat"))
+            (rename-file (string-append *upper-dir-warehouse* "daytradewarehouse3.dat")
+                          (string-append *upper-dir-warehouse* "daytradewarehouse3.backup"))
+        )
+ (dolist (ith markets)
+  ; (populate-day-trades3 ith date (cdr (assoc ith *market-days-available*)))
+
+   (setq path (string-append *upper-dir-warehouse* (format nil "~A" ith) "daytrades3.dat"))
+   (add-day-trades3 path)
+   )
+))
+
+
+;;;;this program can be edited to change the function and the arguments to replace an existing slot
+;;;replaces features  4 5 6 8 (slots  6 7 8 10)
+(defun replace-daytrade-indicators3 ()
+   (let ((path (string-append *upper-dir-warehouse* "daytradewarehouse3.dat"))
+          date-1 )
+  (maind-x)(set-cat-list)(setq daytrades nil)
+  (with-open-file (str path :direction :input)
+      (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+       (push record daytrades)))
+
+  (dolist (ith daytrades)
+     (set-market (svref ith 0))
+     (setq date-1 (getd (svref ith 1) 'ydate))
+
+    (setf (svref ith 6) (round (slow-stochastic date-1 21)));;feature 4
+    (setf (svref ith 7)(num-waves date-1)) ;;feature 5
+   ;  (setf (svref ith 11) (range-index date-1 ));;feature 9
+     (setf (svref ith 6)(2day-change-index date-1));;feature 12
+    ; (setf (nth 15 ith)(my-round (float (if (and (getd (add-mkt-days (getd date-1 'ydate) -21) 'volume)
+    ;                                             (plusp (getd (add-mkt-days (getd date-1 'ydate) -21) 'volume)))
+    ;                              (/ (ave (getd date-1 'ydate) 3 'volume)
+    ;                                 (ave (getd date-1 'ydate) 21 'volume)) 1)) 3));;feature 13
+    ; (setf (nth 16 ith)(my-round (float (if (and (car (getd (add-mkt-days (getd date-1 'ydate) -21) 'openint))
+    ;                                     (plusp (car (getd (add-mkt-days (getd date-1 'ydate) -21) 'openint))))
+    ;                              (/ (ave1 (getd date-1 'ydate) 3 'openint)
+    ;                                 (ave1 (getd date-1 'ydate) 21 'openint)) 1)) 3)) ;;feature 14
+
+     );;;closes the dolist
+
+
+  (with-open-file (str path :direction :output :if-exists :supersede :if-does-not-exist :create)
+    (dolist (jth daytrades)
+      (format str "~S~%" jth)))
+
+))
+;;;;;for day trades with currency futures
+
+;;;this is for the meats day trades
+(defun currencies-bins3 (&rest features)
+  (let (bin path)
+  (setq path (setq path (string-append *upper-dir-warehouse* "currencywarehouse3.dat")))
+  (maind-x)(set-cat-list)
+  (setq daytrades nil day-bin-codes nil)(clrhash *day-trade-warehouse3*)
+    (with-open-file (str path :direction :input)
+      (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+       (push record daytrades)))
+
+
+;;;;now all the trades are in the list swings.
+;;;we now assign/sort the trades into bins
+;;;basically process a record list into a code or bin
+;;;and create a code
+
+   (dolist (record daytrades)
+     (setq bin (encode-day-trades3 record features))
+     (pushnew bin day-bin-codes :test #'equal)
+     (cond ((gethash bin *day-trade-warehouse3*)
+            (ifn (member record (gethash bin *day-trade-warehouse3*) :test #'equalp)
+                 (setf (gethash bin *day-trade-warehouse3*)
+                       (cons record (gethash bin *day-trade-warehouse3*)))))
+           ((not (gethash bin *day-trade-warehouse3*))
+             (setf (gethash bin *day-trade-warehouse3*)
+              (list record)))))
+
+    (format T  "~%FEATURES = ~A~%" features)
+    (rank-daytrade-bins-by-profit3 daytrades)
+
+
+  ))
+
+
+;;;requires a candidate list to add to the base features
+(defun currencies-add-one-in3 (base-features candidate-features)
+  (let (winners-list (result 0))
+  (apply #'currencies-bins3 base-features)
+
+  (dolist (ith candidate-features)
+    (setq result (apply #'currencies-bins3 (cons ith base-features)))
+    (setq winners-list (acons result ith winners-list))
+    )
+    (vsort winners-list #'> 'car)
+   (format T "Most Valuable Feature = ~A~%" (cdar winners-list))
+  (format T "Least Valuable Feature = ~A~%" (cdar (last winners-list)))
+  (format T "Winners List = ~A ~%" winners-list)
+ ))
+
+;;;requires a base features list
+(defun currencies-leave-one-out3 (base-features &optional (stocks nil))
+  (let (winners-list (result 0))
+  (if stocks (setq *stocks* T)(setq *stocks* nil))
+  (apply #'currencies-bins3 base-features)
+
+  (dolist (ith base-features)
+    (setq result (apply #'currencies-bins3 (remove ith base-features)))
+    (setq winners-list (acons result ith winners-list))
+    )
+  (vsort winners-list #'> 'car)
+  (format T "Most Valuable Feature = ~A~%" (cdar (last winners-list)))
+  (format T "Least Valuable Feature = ~A~%" (cdar winners-list))
+  (format T "Winners List = ~A ~%" winners-list)
+ ))
+
+;;;reads the currencywarehouse3.dat
+;;;reads and adds the new trades file
+;;;only adds the new trades if it is not already there.
+;;;writes out the new warehouse with the added trades.
+;;;
+(defun add-currencies-trades3 (new-trades-path)
+  (let ((path-out (string-append *upper-dir-warehouse* "currencywarehouse3.dat")) ewaves-trades)
+
+       (if (probe-file path-out)
+        (with-open-file (str path-out :direction :input)
+         (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+          (push record ewaves-trades))
+          ))
+
+     (with-open-file (str new-trades-path :direction :input)
+         (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+          (pushnew record ewaves-trades :test #'equalp)
+          ))
+
+    (with-open-file (stream path-out :direction :output :if-exists :supersede :if-does-not-exist :create)
+     (dolist (ith ewaves-trades)
+       (format stream "~S~%" ith))
+       ) ;;;closes the with-open-file
+));;closes the let and defun
+
+
+(defun remove-currencies-market3 (market)
+  (let (trades path)
+  (setq path (setq path (string-append *upper-dir-warehouse* "currencywarehouse3.dat")))
+  (maind-x)(set-cat-list)
+
+    (with-open-file (str path :direction :input)
+      (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+       (push record trades)))
+
+   (setq trades (remove-if #'(lambda (s) (eql (svref s 0) market)) trades))
+   (with-open-file (str path :direction :output :if-exists :supersede)
+       (dolist (ith trades)
+        (format str "~S~%" ith)))
+ ))
+
+
+(defun find-best-daytrade-entry3 (tdate num)
+  (let ((best-param .5) (results 0) (total-trades 0) (prev-result -20000000)
+         scores1 scores2 trades result)
+
+  (do ((param best-param  (+ param .03)))
+      ((> param .90) best-param)
+
+      (setq *entry-factor* (my-round param 2))
+      (format T "~%TRYING ENTRY= ~A~%" param)(setq results 0 total-trades 0)
+      (dolist (ith  *currencies-list*)
+        (format T "~%MARKET= ~A~%" ith)
+
+        (multiple-value-setq (result trades) (populate-day-trades3 ith tdate num ))
+        (setq results (+ results result) total-trades (+ total-trades trades)));;closes the dolist
+
+      (setq scores1 (acons param results scores1))(print scores1)
+      (setq scores2 (acons param (round (/ results total-trades)) scores2))(print scores2)
+
+      (if (> results prev-result) (setq prev-result results best-param param))
+      (format T "~%BEST ENTRY SO FAR= ~A" best-param));;;closes the do
+
+
+      ))
+
+
+
+
+;;;;;;;;;;;;;;;;;SWING TRADES FUNCTIONS with vectors
+;;;;and improved objective exit
+
+(defun populate-swing-trades3 (market date2 num &optional  (output T))
+ (let (date stop-long stop-short trades long short  trade-long  entry-short entry-long
+       ave-win ave-loss losers winners extended-trades trade-short prev-signal ctr date-1
+       (path1 (string-append *upper-dir-warehouse* (format nil "~S" market) "swingtrades3.dat")))
+    (declare (ignore ctr))
+   (maind-x)(set-cat-list)(set-market market)
+
+
+   (setq date (add-mkt-days date2 (- num)))
+   (setq date-1 (getd date 'ydate))
+
+ ;;;;from date1 to date2
+ (dotimes (ith num)
+
+   (multiple-value-setq (entry-short entry-long) (vprices date 4 1.66 3))
+   (multiple-value-setq (prev-signal ctr)(vsignals date 4 1.66 3))
+
+   (setq  date-1 date date (add-mkt-days date 1))
+
+    (when (and (getd date 'rollover) long) (setq long (+ long (getd date 'rollover))
+        					 entry-long (+ entry-long (getd date 'rollover))
+    						 stop-long (+ stop-long (getd date 'rollover))))
+    (when (and (getd date 'rollover) short)(setq short (+ short (getd date 'rollover))
+    						 entry-short (+ entry-short (getd date 'rollover))
+     						 stop-short (+ stop-short (getd date 'rollover))))
+
+  ;;;;check if stopped out of prior position
+
+   (when long (setq stop-long (max stop-long entry-short)))
+   (when short (setq stop-short (min stop-short entry-long)))
+
+
+;;;check if stopped out
+   (when (and long (<= (getd date 'low) stop-long))
+          (push (- (min stop-long (getd date 'open)) long) trades)
+          (setq trade-long (apply #'vector
+               (append trade-long (list date (my-pretty-price (min stop-long (getd date 'open)))
+                       (round (* (index-point-value) (- (min stop-long (getd date 'open)) long)))))))
+          (push trade-long extended-trades)
+          (setq trade-long nil long nil stop-long nil))
+
+   (when (and short (>= (getd date 'high) stop-short))
+          (push (- short (max stop-short (getd date 'open))) trades)
+          (setq trade-short  (apply #'vector
+                (append trade-short  (list date (my-pretty-price (max stop-short (getd date 'open)))
+                 (round (* (index-point-value) (- short (max stop-short (getd date 'open)))))))))
+          (push trade-short extended-trades)
+          (setq trade-short nil short nil stop-short nil))
+
+;;;check if new entry
+
+    (when (and (not short)
+               (<= (getd date 'low) entry-short)
+               (eql prev-signal 'buy)
+               )
+          (setq short (min entry-short (getd date 'open))
+                 trade-short (create-swing-entry-record-list1 date-1 -1 short)
+                 stop-short entry-long
+         ))
+
+
+    (when (and (not long)
+               (>= (getd date 'high) entry-long)
+               (eql prev-signal 'sell)
+               )
+           (setq long (max entry-long (getd date 'open))
+                 trade-long (create-swing-entry-record-list1 date-1 1 long)
+                 stop-long entry-short
+              ))
+
+
+ ;;;check if stopped out on same day of entry
+   (when (and long (or (> (getd date 'open)(getd date 'close))
+                       (<= (getd date 'low) entry-short))
+               (<= (getd date 'low) stop-long))
+           (push (- stop-long long) trades)
+           (setq trade-long (apply #'vector
+                 (append trade-long
+                             (list date (my-pretty-price stop-long) (round (* (index-point-value)(- stop-long long)))))))
+           (push trade-long extended-trades)
+           (setq trade-long nil long nil stop-long nil))
+
+
+    (when (and long stop-long (<= (getd date 'open)(getd date 'close))
+                               (<= (getd date 'close) stop-long))
+           (push (- stop-long long) trades)
+           (setq trade-long (apply #'vector
+                 (append trade-long
+                     (list date (my-pretty-price stop-long) (round (* (index-point-value)(- stop-long long)))))))
+           (push trade-long extended-trades)
+           (setq trade-long nil long nil stop-long nil
+           ))
+
+
+    (when  (and short (or (< (getd date 'open)(getd date 'close))
+                          (>= (getd date 'high) entry-long))
+               (>= (getd date 'high) stop-short))
+           (push (- short stop-short) trades)
+           (setq trade-short (apply #'vector
+                 (append trade-short
+                         (list date (my-pretty-price stop-short) (round (* (index-point-value)(- short stop-short)))))))
+           (push trade-short extended-trades)
+           (setq trade-short nil short nil stop-short nil))
+
+
+    (when (and short stop-short (>= (getd date 'open)(getd date 'close))
+                                 (>= (getd date 'close) stop-short))
+           (push (- short stop-short) trades)
+           (setq trade-short (apply #'vector
+                (append trade-short
+                        (list date (my-pretty-price stop-short) (round (* (index-point-value)(- short stop-short)))))))
+           (push trade-short extended-trades)
+           (setq trade-short nil short nil stop-short nil
+           ))
+
+   );;;closes the dotimes
+
+
+  ;;;apply commission of $75 per round turn and slippage of 0 ticks per round turn
+   (setq trades (mapcar #'(lambda (s) (- s (/ *swing-commission* (index-point-value)) (* 0 (index-tick-size)))) trades))
+
+ (when output
+   (setq losers (remove-if #'plusp trades) winners (remove-if #'zerop (remove-if #'minusp trades))
+         ave-win   (/ (* (list-sum winners) (index-point-value)) (if (zerop (length winners)) 1 (length winners)))
+         ave-loss  (* (/ (list-sum losers) (if (zerop (length losers)) 1 (length losers))) (index-point-value))
+          )
+     (format output "~%~A~%" *data-name*)
+     (format output "P/L= ~D  NUMBER TRADES= ~A  ACCURACY= ~,1,2,'*,' F%  PAYOFF RATIO= ~,2,0,'*,' F~%~
+        P/L PER TRADE= ~D AVERAGE GAIN= ~D  AVERAGE LOSS= ~D~%LARGEST LOSS= ~D  PROFIT FACTOR= ~,2,0,'*,' F  ~
+          DRAWDOWN= ~D"
+       (round (* (list-sum trades) (or (index-point-value) 1))) (length trades)
+       (/ (- (length trades) (length losers))
+          (if (zerop (length trades)) 1 (length trades)))
+       (abs (if (zerop ave-loss) 0 (/ ave-win ave-loss)))
+       (round (/ (* (list-sum trades) (or (index-point-value) 1)) (if (zerop (length trades)) 1 (length trades))))
+       (round ave-win)
+       (round ave-loss)
+       (round (* (or (min* losers) 0) (or (index-point-value) 1)))
+       (/ (* (length winners) ave-win) (* (if (zerop (length losers)) 1 (length losers))
+                                          (abs (if (zerop ave-loss) 1 ave-loss) )))
+        (round (* (drawdown trades)(or (index-point-value) 1)))
+     );close the format
+
+
+   (with-open-file (stream path1 :direction :output :if-exists :supersede :if-does-not-exist :create)
+
+    (dolist (ith extended-trades)
+
+    (format stream "~S~%" ith)
+
+    ));;closes the dolist and with-open-file
+   ); closes the when
+
+
+    (values (round (* (list-sum trades) (or (index-point-value) 1)))
+            (length trades) trades)
+   ));;;closes the let and the defun
+
+
+(defun swing-trade-bins3 (&rest features)
+  (let (bin path)
+   (if *stocks* (setq path (string-append *upper-dir-warehouse* "stocksswingwarehouse3.dat"))
+       (setq path (string-append *upper-dir-warehouse* "swingtradewarehouse3.dat")))
+  (maind-x)(set-cat-list)
+  (setq swings nil bin-codes nil)(clrhash *swing-trade-warehouse3*)
+    (with-open-file (str path :direction :input)
+      (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+       (push record swings)))
+
+
+;;;;now all the trades are in the list swings.
+;;;we now assign/sort the trades into bins
+;;;basically process a record list into a code or bin
+;;;and create a code
+
+   (dolist (record swings)
+     (setq bin (encode-swing-trades3 record features))
+     (pushnew bin bin-codes :test #'equal)
+     (cond ((gethash bin *swing-trade-warehouse3*)
+            (ifn (member record (gethash bin *swing-trade-warehouse3*) :test #'equal)
+                 (setf (gethash bin *swing-trade-warehouse3*)
+                       (cons record (gethash bin *swing-trade-warehouse3*)))))
+           ((not (gethash bin *swing-trade-warehouse3*))
+             (setf (gethash bin *swing-trade-warehouse3*)
+              (list record)))))
+
+    (format T  "~%FEATURES = ~A~%" features)
+    (rank-swing-bins-by-profit3 swings)
+
+
+  ))
+
+
+;;;returns a list of nine codes
+(defun encode-swing-trades3 (record features)
+  (let (bin-list)
+
+    (dolist (ith features)
+     (case ith
+      (1 (push (svref record 2) bin-list));;;adds the direction
+
+ ;;;;Feature 2 with 10 levels is the stochastic with parameter 21
+     (2 (cond ((<= (svref record 4) 10) (push 5 bin-list))
+              ((and (> (svref record 4) 10)(<= (svref record 4) 20)) (push 4 bin-list))
+              ((and (> (svref record 4) 20)(<= (svref record 4) 30)) (push 3 bin-list))
+              ((and (> (svref record 4) 30)(<= (svref record 4) 40)) (push 2 bin-list))
+              ((and (> (svref record 4) 40)(<= (svref record 4) 50)) (push 1 bin-list))
+              ((and (> (svref record 4) 50)(<= (svref record 4) 60)) (push -1 bin-list))
+              ((and (> (svref record 4) 60)(<= (svref record 4) 70)) (push -2 bin-list))
+              ((and (> (svref record 4) 70)(<= (svref record 4) 80)) (push -3 bin-list))
+              ((and (>= (svref record 4) 80)(< (svref record 4) 90)) (push -4 bin-list))
+              ((>= (svref record 4) 90) (push -5 bin-list))))
+
+ ;;;;Feature 3 with 8 levels is the trend-signal1 3
+      (3 (push (svref record 5) bin-list))
+
+;;;Feature 4 with 6 levels is tdsetup
+      (4 (cond
+               ((> (svref record 6) 8) (push 3 bin-list))
+               ((> (svref record 6) 4) (push 2 bin-list))
+               ((> (svref record 6) 0) (push 1 bin-list))
+               ((< (svref record 6) -8) (push -3 bin-list))
+               ((< (svref record 6) -4) (push -2 bin-list))
+               ((< (svref record 6) 0) (push -1 bin-list))
+               (t (push 0 bin-list))))
+
+;;;Feature 5 with 9 levels of relative ROC 4 28
+     (5  (cond ((> (svref record 7) 1.618) (push 4 bin-list))
+               ((> (svref record 7) 1.000) (push 3 bin-list))
+               ((> (svref record 7)  .618) (push 2 bin-list))
+               ((> (svref record 7)  .382) (push 1 bin-list))
+               ((< (svref record 7) -1.618) (push -4 bin-list))
+               ((< (svref record 7) -1.000) (push -3 bin-list))
+               ((< (svref record 7) -.618) (push -2 bin-list))
+               ((< (svref record 7) -.382) (push -1 bin-list))
+               (t  (push 0 bin-list))))
+
+
+
+;;;Feature 6 with 5 levels is the trend-signal 45
+    (6  (push (svref record 8) bin-list))
+
+;;;Feature 7 with 5 levels; DN CD UP CU FT This is TS135
+    (7  (push (svref record 9) bin-list))
+
+;;;;Feature 8 with 6 levels pivot-index for date-1
+      (8  (push (svref record 10) bin-list))
+
+
+;;;;Feature 9 has 10 levels ;this is the volatility ratio of 4 days to 28 days
+       (9 (cond ((< (svref record 11) .60) (push 5 bin-list))
+                ((and (>= (svref record 11) .60)(< (svref record 11) .70)) (push 4 bin-list))
+                ((and (>= (svref record 11) .70)(< (svref record 11) .80)) (push 3 bin-list))
+                ((and (>= (svref record 11) .80)(< (svref record 11) .90)) (push 2 bin-list))
+                ((and (>= (svref record 11) .90)(< (svref record 11) 1.0)) (push 1 bin-list))
+                ((and (>= (svref record 11) 1.0)(< (svref record 11) 1.10)) (push -1 bin-list))
+                ((and (>= (svref record 11) 1.10)(< (svref record 11) 1.20)) (push -2 bin-list))
+                ((and (>= (svref record 11) 1.20)(< (svref record 11) 1.30)) (push -3 bin-list))
+                ((and (>= (svref record 11) 1.30)(< (svref record 11) 1.40)) (push -4 bin-list))
+                ((>= (svref record 11) 1.40)(push -5 bin-list))))
+
+;;;;Feature 10 with 9 levels bar type
+      (10 (push (svref record 12) bin-list))
+
+
+;;;;;;Feature 11 with 5 levels of bar relationship to the previous bar
+
+      (11 (push (svref record 13) bin-list))
+
+
+;;;Feature 12 is pldot-index
+
+       (12  (push (svref record 14) bin-list))
+
+;;;Feature 13 is 2-bar-index date
+
+       (13 (push (svref record 15) bin-list))
+
+;;;Feature 14 is mo-diver date 45
+
+       (14 (push (svref record 16) bin-list))
+
+                ));;;closes the case and the dolist over features
+
+      (reverse bin-list)
+ ))
+
+
+(defun rank-swing-bins-by-profit3 (swings)
+  (let (contents (result 0) profit-list (all-winners 0)(all-losers 0) (twr 1.0)
+       (winners 0)(losers 0) (counter 0) (only-one 0) (num-in-winning-bins 0))
+   (dolist (ith bin-codes)
+     (setq contents (gethash ith *swing-trade-warehouse3*))
+     (setq result 0 counter 0 twr 1.0)
+
+     (if (= (length contents) 1) (incf only-one))
+     (dolist (kth contents)
+         (setq result (+ result (svref kth 19)))
+         (if (plusp (svref kth 19)) (incf counter))
+          (setq twr (* twr (+ 1.0 (/ (* (svref kth 2)(- (svref kth 18) (svref kth 3)))
+                                   (svref kth 3)))))
+         ) ;;;closes dolist over contents
+      (if (and (plusp result)(> twr 1.0)) (setq num-in-winning-bins (+ num-in-winning-bins (length contents))))
+
+     (setq profit-list
+      (cons (list result twr (/ result (length contents))
+                (/ counter (length contents)) (length contents) ith) profit-list)));;;closes dolist over bin-codes
+
+    (dolist (kth swings)
+       (if (plusp (svref kth 19)) (setq all-winners (+ all-winners (svref kth 19)))
+           (setq all-losers (+ all-losers (svref kth 19)))))
+
+     (setq counter 0)
+     (dolist (jth profit-list)
+         (if (and (plusp (car jth))(> (second jth) 1.0))
+             (setq winners (+ winners (car jth)) counter (+ 1 counter))
+         (setq losers (+ losers (car jth)))))
+
+     (format T "NUMBER OF TRADES = ~A  in ~D MARKETS~%" (length swings)(length (num-markets-in-warehouse3 swings)))
+     (format T "ALL WINNERS = ~A   ALL LOSERS = ~A~%~%" all-winners all-losers)
+     (format T "NUMBER of ALL BINS = ~D~%" (length bin-codes))
+     (format T "RATIO OF TRADES TO BINS = ~F~%" (my-round (/ (length swings)(length bin-codes)) 1))
+     (format T "WINNING BIN PROFITS = ~A  IN ~D WINNING BINS~%~%" winners counter)
+     (format T "RATIO OF BIN PROFITS TO ALL WINNERS = ~F~%" (my-round (/ winners all-winners) 2))
+     (format T "NUMBER OF TRADES IN THE WINNING BINS = ~D~%" num-in-winning-bins)
+     (format T "PROFIT PER TRADE IN WINNING BINS = ~A~%~%" (if (zerop num-in-winning-bins) 0 (round (/ winners num-in-winning-bins))))
+     (format T "NUMBER OF BINS WITH ONLY 1 TRADE = ~D~%" only-one)
+     (format T "RATIO OF ONLY 1 TRADE BINS TO ALL BINS = ~F~%~%" (my-round (/ only-one (length bin-codes)) 2))
+     (format T "RATIO OF ONLY 1 TRADE BINS TO ALL TRADES = ~F~%~%" (my-round (/ only-one (length swings)) 2))
+
+    (values (round winners)(round (+ all-winners all-losers)))
+
+ ))
+
+
+
+;;;enters with stop orders and exits with stop loss orders and includes objectives
+;;;;also trails the stop loss based on slippage
+(defun swing-simulation-test3 (market date2 num &optional (stocks nil)(features *swing-features3*))
+ (let (date stop-long stop-short trades long short ave4  trade-long  entry-long entry-short
+       cover-long cover-short ave-win ave-loss losers winners extended-trades trade-short (twr-long 1)(twr-short 1)
+       risk risk-long risk-short  epsignal longs long-gains long-acc trading-dates (trade-time 0)
+       shorts short-gains short-acc prev-signal ctr date-1 record (running-sum 0) bin draw
+       (summary-path (string-append *output-upper-dir* (format nil "~S" market) "swing-summary3.dat"))
+       (AT (make-hash-table)) (VT (make-hash-table))
+       (path1 (string-append *output-upper-dir* (format nil "~S" market) "swing-simulation3.dat"))
+       (path2 (string-append *output-upper-dir* (format nil "~S" market) "swing-diary3.dat")))
+
+      (declare (ignore  short-acc long-acc ctr))
+    (if stocks (Setq *stocks* T))
+   (apply #'swing-trade-bins3 features)
+   (set-market market)
+
+   (setq date (add-mkt-days date2 (- num)))
+    (setq record (list date (getd date 'close) 0 0 0))
+    (push record trading-dates)
+ ;;;;from date1 to date2
+ (dotimes (ith num)
+
+    (cond ((gethash  date  AT))
+          (t (setf (gethash date AT) (ave date 3 'pivot))))
+
+   (cond ((gethash date VT))
+         (t (setf (gethash date VT) (volatility-log date 60 1))));;;volatility over the past three months
+
+   (multiple-value-setq (entry-short entry-long)
+        (vprices date 4 1.66 3))
+
+   (setq entry-short (min entry-short (getd date 'close)) entry-long (max entry-long (getd date 'close)))
+;;;this is a black swan objective
+   (setq ave4 (gethash date AT)
+       cover-short  (my-pretty-price (exp (- (log ave4) (* *objective-factor-swing* (gethash date VT)))))
+       cover-long (my-pretty-price (exp (+ (log ave4) (* *objective-factor-swing* (gethash date VT))))))
+
+
+   (setq risk-short (my-pretty-price (* *stop-loss-swing* (abs (- entry-short (n-day-high date 3 'close))))))
+
+   (setq risk-long  (my-pretty-price (* *stop-loss-swing* (abs (- entry-long  (n-day-low date 3 'close))))))
+
+   (setq risk (max risk-long risk-short))
+
+   (setq date-1 date date (add-mkt-days date 1))
+
+   (setq record (list date (getd date 'close) 0 0 0))
+   (if long (setf (nth 2 record) 1))
+   (if short (setf (nth 2 record) -1))
+
+;;;if long or short and not entry or exits
+      (if long (setf (nth 3 record) (- (getd date 'close) (getd date-1 'close))))
+      (if short (setf (nth 3 record)(- (getd date-1 'close)(getd date 'close))))
+
+    (when (and (getd date 'rollover) long)
+             (setq long (+ long (getd date 'rollover))
+        	   entry-long (+ entry-long (getd date 'rollover))
+    		   stop-long (+ stop-long (getd date 'rollover)))
+             (setf (nth 3 record)(- (nth 3 record) (getd date 'rollover)))
+)
+    (when (and (getd date 'rollover) short)
+            (setq short (+ short (getd date 'rollover))
+    		  entry-short (+ entry-short (getd date 'rollover))
+    		  stop-short (+ stop-short (getd date 'rollover)))
+            (setf (nth 3 record) (+ (nth 3 record) (getd date 'rollover)))
+)
+
+
+   (when long (setq stop-long (fmax stop-long entry-short)))
+
+   (when short (setq stop-short (fmin stop-short entry-long)))
+
+;;;;check if stopped out of prior position
+
+   (when (and long (<= (getd date 'low) stop-long))
+          (push (- (min stop-long (getd date 'open)) long) trades)
+          (setq trade-long (apply #'vector
+             (append trade-long
+              (list date 'exit (min stop-long (getd date 'open)) (- (min stop-long (getd date 'open)) long)))))
+          (push trade-long extended-trades)(setq trade-time (+ trade-time 1 (sub-mkt-dates (svref trade-long 0) (svref trade-long 3))))
+          (setf (nth 2 record) 1)
+          (setf (nth 3 record) (- (min stop-long (getd date 'open)) (getd date-1 'close)))
+          (if (getd date 'rollover)(setf (nth 3 record)(- (nth 3 record) (getd date 'rollover))))
+          (setq trade-long nil long nil stop-long nil))
+
+   (when (and short (>= (getd date 'high) stop-short))
+          (push (- short (max stop-short (getd date 'open))) trades)
+          (setq trade-short (apply #'vector
+            (append trade-short
+              (list date 'exit (max stop-short (getd date 'open)) (- short (max stop-short (getd date 'open)))))))
+          (push trade-short extended-trades)(setq trade-time (+ trade-time 1 (sub-mkt-dates (svref trade-short 0) (svref trade-short 3))))
+          (setf (nth 2 record) -1)
+          (setf (nth 3 record) (- (getd date-1 'close) (max stop-short (getd date 'open))))
+          (if (getd date 'rollover) (setf (nth 3 record)(+ (nth 3 record) (getd date 'rollover))))
+          (setq trade-short nil short nil stop-short nil))
+
+  ;;;check if met objective
+     (when (and long (> (getd date 'high) cover-long))
+            (push (- (max (getd date 'open) cover-long) long) trades)
+            (setq trade-long (apply #'vector
+               (append trade-long
+                  (list date 'exit (max (getd date 'open) cover-long) (- (max (getd date 'open) cover-long) long)))))
+            (push trade-long extended-trades)(setq trade-time (+ trade-time 1 (sub-mkt-dates (svref trade-long 0) (svref trade-long 3))))
+            (setf (nth 2 record) 1)
+            (setf (nth 3 record) (- (max (getd date 'open) cover-long) (getd date-1 'close)))
+            (if (getd date 'rollover)(setf (nth 3 record)(- (nth 3 record) (getd date 'rollover))))
+            (setq trade-long nil long nil stop-long nil))
+
+      (when (and short (< (getd date 'low) cover-short))
+            (push (- short (min (getd date 'open) cover-short)) trades)
+            (setq trade-short (apply #'vector
+               (append trade-short (list date 'exit cover-short (- short (min (getd date 'open) cover-short))))))
+            (push trade-short extended-trades)(setq trade-time (+ trade-time 1 (sub-mkt-dates (svref trade-short 0) (svref trade-short 3))))
+            (setf (nth 2 record) -1)
+            (setf (nth 3 record) (- (getd date-1 'close) (min (getd date 'open) cover-short)))
+            (if (getd date 'rollover)(setf (nth 3 record)(+ (nth 3 record) (getd date 'rollover))))
+            (setq trade-short nil short nil stop-short nil))
+
+;;;;calculate bin-classifier only as needed
+ (when (or (<= (getd date 'low) entry-short)
+           (>= (getd date 'high) entry-long)
+               )
+       (multiple-value-setq (epsignal longs long-gains long-acc shorts short-gains short-acc bin)
+                   (bin-classifier-swings3 date-1 features))
+       (setq twr-short (swing-bin-twr3 bin))(setf (nth 0 bin) 1)
+       (setq twr-long (swing-bin-twr3 bin))
+       (multiple-value-setq (prev-signal ctr)(vsignals date-1 4 1.66 3)))
+
+
+;;;check if new entry
+
+    (when (and (not short)
+               (<= (getd date 'low) entry-short)
+               (member epsignal '(OK DOWN))
+               (eql prev-signal 'BUY)(> shorts 0)
+               (>= (/ short-gains shorts) 150) (> twr-short 1)
+               (<= (* risk (index-point-value)) *max-swing-risk*)
+               )
+          (setq short (min entry-short (getd date 'open))
+                 trade-short (list date 'short short)
+                 stop-short (+ entry-short risk-short))
+          (setf (nth 2 record) -1)
+          (setf (nth 3 record) (+ (nth 3 record)
+                (- short (getd date 'close)(/ *swing-commission* (index-point-value)))))
+
+              )
+
+    (when (and (not long)
+               (>= (getd date 'high) entry-long)
+               (member epsignal '(OK UP))
+               (eql prev-signal 'SELL)(> longs 0)
+               (>= (/ long-gains longs) 150) (> twr-long 1)
+               (<= (* risk (index-point-value)) *max-swing-risk*)
+               )
+           (setq long (max entry-long (getd date 'open))
+                 trade-long (list date 'long long)
+                 stop-long (- entry-long risk-long))
+           (setf (nth 2 record) 1)
+           (setf (nth 3 record) (+ (nth 3 record)
+                 (- (getd date 'close) long (/ *swing-commission* (index-point-value)))))
+
+             )
+
+
+ ;;;check if stopped out on same day of entry
+   (when (and long (or (> (getd date 'open)(getd date 'close))
+                       (<= (getd date 'low) entry-short))
+               (<= (getd date 'low) stop-long))
+           (push (- stop-long long) trades)
+           (setq trade-long (apply #'vector (append trade-long (list date 'exit stop-long (- stop-long long)))))
+           (push trade-long extended-trades)(setq trade-time (+ trade-time 1))
+           (setf (nth 2 record) 1)
+           (setf (nth 3 record) (+ (nth 3 record)(- stop-long long)))
+           (setf (nth 3 record) (- (nth 3 record)(- (getd date 'close) long)))
+           (setq trade-long nil long nil stop-long nil))
+
+
+    (when (and long stop-long (<= (getd date 'open)(getd date 'close))
+                               (<= (getd date 'close) stop-long))
+           (push (- stop-long long) trades)
+           (setq trade-long (apply #'vector (append trade-long (list date 'exit stop-long (- stop-long long)))))
+           (push trade-long extended-trades)(setq trade-time (+ trade-time 1))
+           (setf (nth 2 record) 1)
+           (setf (nth 3 record) (+ (nth 3 record) (- stop-long long)))
+           (setf (nth 3 record) (- (nth 3 record)(- (getd date 'close) long)))
+           (setq trade-long nil long nil stop-long nil
+           ))
+
+
+    (when  (and short (or (< (getd date 'open)(getd date 'close))
+                          (>= (getd date 'high) entry-long))
+               (>= (getd date 'high) stop-short))
+           (push (- short stop-short) trades)
+           (setq trade-short (apply #'vector (append trade-short (list date 'exit stop-short (- short stop-short)))))
+           (push trade-short extended-trades)(setq trade-time (+ trade-time 1))
+           (setf (nth 2 record) -1)
+           (setf (nth 3 record) (+ (nth 3 record)(- short stop-short)))
+           (setf (nth 3 record) (- (nth 3 record)(- short (getd date 'close))))
+           (setq trade-short nil short nil stop-short nil))
+
+
+    (when (and short stop-short (>= (getd date 'open)(getd date 'close))
+                                 (>= (getd date 'close) stop-short))
+           (push (- short stop-short) trades)
+           (setq trade-short (apply #'vector  (append trade-short (list date 'exit stop-short (- short stop-short)))))
+           (push trade-short extended-trades)(setq trade-time (+ trade-time 1))
+           (setf (nth 2 record) -1)
+           (setf (nth 3 record) (+ (nth 3 record) (- short stop-short)))
+           (setf (nth 3 record) (- (nth 3 record)(- short (getd date 'close))))
+           (setq trade-short nil short nil stop-short nil
+           ))
+
+
+ ;;;check if met objective
+ ;;;adjust cover-long and cover-short prices
+ ;;;to exit at the volatility bands in case the
+ ;;;trade outlook changes.
+#|
+    (when (and short
+               (<= (getd date 'low) entry-short)
+               (> shorts 0)(<= short-gains 0)
+               (< twr-short 1)
+               )
+          (setq cover-short (min entry-short (getd date 'open)))
+              )
+
+    (when (and long
+               (>= (getd date 'high) entry-long)
+               (> longs 0)(<= long-gains 0)
+               (< twr-long 1)
+               )
+           (setq cover-long (max entry-long (getd date 'open)))
+             )
+|#
+
+     (cond ((and long (> (getd date 'high) cover-long))
+            (push (- cover-long long) trades)
+            (setq trade-long (apply #'vector (append trade-long (list date 'exit cover-long (- cover-long long)))))
+            (push trade-long extended-trades)(setq trade-time (+ trade-time 1))
+            (setf (nth 2 record) 1)
+            (setf (nth 3 record) (+ (nth 3 record)(- cover-long long)))
+            (setf (nth 3 record) (- (nth 3 record)(- (getd date 'close) long)))
+            (setq trade-long nil long nil stop-long nil))
+           ((and short (< (getd date 'low) cover-short))
+            (push (- short cover-short) trades)
+            (setq trade-short (apply #'vector (append trade-short (list date 'exit cover-short (- short cover-short)))))
+            (push trade-short extended-trades)(setq trade-time (+ trade-time 1))
+            (setf (nth 2 record) -1)
+            (setf (nth 3 record) (+ (nth 3 record) (- short cover-short)))
+            (setf (nth 3 record) (- (nth 3 record)(- short (getd date 'close))))
+            (setq trade-short nil short nil stop-short nil)))
+
+
+      (setf (nth 4 record) (+ (nth 3 record) running-sum))
+      (setq running-sum (nth 4 record))
+      (push record trading-dates)
+      (setq record nil)
+
+
+   );;;closes the dotimes
+
+   (with-open-file (stream path2 :direction :output :if-exists :supersede :if-does-not-exist :create)
+     (dolist (ith trading-dates)
+     (format stream "~A\,~F\,~D\,~D,~D~%"
+           (first ith) (second ith) (third ith) (round (* (index-point-value)(nth 3 ith)))
+           (round (* (index-point-value) (nth 4 ith))))
+     ))
+  ;;;apply commission of $75 per round turn and slippage of 0 ticks per round turn
+   (setq trades (mapcar #'(lambda (s) (- s (/ *swing-commission* (index-point-value)) (* 0 (index-tick-size)))) trades))
+
+ (with-open-file (str summary-path :direction :output :if-exists :supersede :if-does-not-exist :create)
+   (setq losers (remove-if #'plusp trades) winners (remove-if #'zerop (remove-if #'minusp trades))
+         ave-win   (/ (* (list-sum winners) (index-point-value)) (if (zerop (length winners)) 1 (length winners)))
+         ave-loss  (* (/ (list-sum losers) (if (zerop (length losers)) 1 (length losers))) (index-point-value))
+          )
+
+     (format str "~A traded from ~A to ~A~%" (index-lname) (date-convert (add-mkt-days date2 (- num)))(date-convert date2))
+
+      (format str "P/L= ~16D  NUMBER TRADES=   ~6D   ACCURACY=       ~,1,2,'*,' F%~%~
+        P/L PER TRADE= ~6D  AVERAGE GAIN=  ~8D   AVERAGE LOSS=~8D~%~
+        PAYOFF RATIO=    ~4,2,0,'*,' F  ~
+        LARGEST LOSS=   ~7D   LARGEST GAIN= ~7D~%~
+        PROFIT FACTOR=   ~,2,0,'*,' F  AVE DAYS IN TRADE= ~F~%~
+        DRAWDOWN= ~11D  $/contract=  ~10D  "
+
+       (round (* (list-sum trades) (or (index-point-value) 1))) (length trades)
+       (/ (- (length trades) (length losers))
+          (if (zerop (length trades)) 1 (length trades)))
+
+       (round (/  (* (list-sum trades) (or (index-point-value) 1)) (if (zerop (length trades)) 1 (length trades))))
+       (round ave-win)
+       (round ave-loss)
+       (abs (if (zerop ave-loss) 0 (/ ave-win ave-loss)))
+       (round (* (or (min* losers) 0) (or (index-point-value) 1)))
+
+       (round (* (or (max* winners) 0)(or (index-point-value) 1)))
+       (/ (* (length winners) ave-win) (* (if (zerop (length losers)) 1 (length losers))
+                                          (abs (if (zerop ave-loss) 1 ave-loss) )))
+      (my-round (/ trade-time (if (zerop (length trades)) 1 (length trades))) 1)
+      (setq draw (round (* (drawdown trades)(or (index-point-value) 1))))
+      (if (plusp (list-sum trades))
+          (round (optimal-f (mapcar #'(lambda (s) (* s (or (index-point-value) 1))) trades))) 0)
+       )
+
+     (format str "~%~%MIN INITIAL $=      ~5D" (* 1000 (ceiling (* 3 (abs draw)) 1000)))
+     (format str "~%AVE ANNUAL RETURN= ~5,1,0,'*,' F%"
+          (* 100 (/ (/ (* (list-sum trades) (or (index-point-value) 1))
+                       (/ (subtract-dates (add-mkt-days date2 (- num)) date2)
+                                           365.25))
+                       (* 1000 (ceiling (max 1.0 (* 3 (abs draw))) 1000))) ))
+
+   (with-open-file (stream path1 :direction :output :if-exists :supersede :if-does-not-exist :create)
+
+    (dolist (ith extended-trades)
+
+    (format stream "~A\,~A\,~F\,~A\,~A\,~F\,~F\,~D~%"
+         (svref ith 0)(svref ith 1)(svref ith 2)(svref ith 3)(svref ith 4)(svref ith 5)(svref ith 6)(round (* (index-point-value) (svref ith 6))))
+    ));;closes the dolist and with-open-file
+   ); closes the when
+
+    (values (round (* (list-sum trades) (or (index-point-value) 1)))
+            (length trades) trades)
+   ));;;closes the let and the defun
+
+
+
+;;;;returns if date is bullish or bearish and expected value and accuracy and number in warehouse
+(defun bin-classifier-swings3 (date features)
+  (let (record bin (result 0) (counter 0) contents epsignal (nxdate (getd date 'ndate))
+        (longs 0)(shorts 0) (results-long 0) (results-short 0)(num-winners-long 0)(num-winners-short 0))
+
+    (setq record (create-swing-entry-record-list1 date 1 nil))
+    (setq record (apply #'vector (append record '(nil nil nil))))
+
+
+  (setq bin (encode-swing-trades3 record features))
+  (setq contents (gethash bin *swing-trade-warehouse3*))
+    ;;; then look for short trades. rule All bins are long or short trades
+    (setf (nth 0 bin) -1)
+    (setq contents (append (gethash bin *swing-trade-warehouse3*) contents))
+
+
+   (setq contents
+    (remove-if #'(lambda(s1) (and (eql *data-name* (svref s1 0))
+                                  (eql nxdate (svref s1 1)))) contents))
+   (dolist (kth contents)
+
+     (when (eql (svref kth 2) 1)
+      (incf longs) (setq results-long (+ results-long (svref kth 19))))
+
+    (when (and (eql (svref kth 2) 1)(plusp (svref kth 19)))
+       (incf num-winners-long))
+
+     (when (eql (svref kth 2) -1)
+      (incf shorts)(setq results-short (+ results-short (svref kth 19))))
+
+     (when (and (eql (svref kth 2) -1)(plusp (svref kth 19)))
+        (incf num-winners-short))
+        );;;closes dolist over contents
+  (setq result 0)
+  (dolist (jth contents)
+         (setq result (+ result (svref jth 19)))
+        (if (plusp (svref jth 19)) (incf counter))) ;;;closes dolist over contents
+
+  (cond ((and (plusp results-long)(plusp results-short)) (setq epsignal 'OK))
+        ((plusp results-long) (setq epsignal 'UP))
+        ((plusp results-short) (setq epsignal 'DOWN))
+        ((and (<= results-long 0)(<= results-short 0)) (setq epsignal 'AVOID))
+        ((not contents) (setq epsignal 'UNIQUE)))
+
+  (values epsignal longs results-long (if (zerop longs) 0 (/ num-winners-long longs))
+         shorts results-short
+          (if (zerop shorts) 0 (/ num-winners-short shorts))
+          bin)
+))
+
+
+;;;calculates the twr for a bin
+;;;must run #'swing-trade-bins3 before running this function
+(defun swing-bin-twr3 (bin)
+  (let ((twr 1))
+
+   (dolist (record (gethash bin *swing-trade-warehouse3*))
+     (setq twr (* twr (+ 1 (/ (if (plusp (svref record 2))
+                                 (- (svref record 18) (svref record 3))
+                               (- (svref record 3) (svref record 18)))
+                             (svref record 3)))
+                           )))
+  twr
+))
+
+
+
+
+(defun build-swing-warehouse3 (date)
+   (let (path)
+
+  (when (probe-file (string-append *upper-dir-warehouse* "swingtradewarehouse3.dat"))
+      (rename-file (string-append *upper-dir-warehouse* "swingtradewarehouse3.dat") (string-append *upper-dir-warehouse* "swingtradewarehouse3.backup"))
+    )
+ (dolist (ith *market-days-available*)
+   (print (car ith))
+   (populate-swing-trades3 (car ith) date (cdr ith))
+
+   (setq path (string-append *upper-dir-warehouse* (format nil "~S" (car ith)) "swingtrades3.dat"))
+
+   (add-swing-trades3 path)
+
+;   (shell (string-append "cat " path " >> " "~/exitpoints/swingtradewarehouse3.dat"))
+
+   )
+))
+
+;;;reads the swingtradewarehouse3.dat
+;;;reads and adds the new trades file
+;;;only adds the new trades if it is not already there.
+;;;writes out the new warehouse with the added trades.
+;;;
+(defun add-swing-trades3 (new-trades-path)
+  (let ((path-out (string-append *upper-dir-warehouse* "swingtradewarehouse3.dat")) trades)
+
+       (if (probe-file path-out)
+        (with-open-file (str path-out :direction :input)
+         (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+          (push record trades))
+          ))
+
+     (with-open-file (str new-trades-path :direction :input)
+         (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+          (pushnew record trades :test #'equalp)
+          ))
+
+    (with-open-file (stream path-out :direction :output :if-exists :supersede :if-does-not-exist :create)
+     (dolist (ith trades)
+       (format stream "~S~%" ith))
+       ) ;;;closes the with-open-file
+));;closes the let and defun
+
+
+(defun find-best-swingtrade-entry3 (tdate num)
+  (let ((best-param 1.5) (results 0) (total-trades 0) (prev-result -20000000)
+         scores1 scores2 trades result)
+
+  (do ((param best-param  (+ param .05)))
+      ((> param 2.60) best-param)
+
+      (setq *entry-factor-swing* (my-round param 2))
+      (format T "~%TRYING ENTRY= ~A~%" param)(setq results 0 total-trades 0)
+      (dolist (ith  *position-list*)
+        (format T "~%MARKET= ~A~%" ith)
+
+        (multiple-value-setq (result trades) (populate-swing-trades3 ith tdate num ))
+        (setq results (+ results result) total-trades (+ total-trades trades)));;closes the dolist
+
+      (setq scores1 (acons param results scores1))(print scores1)
+      (setq scores2 (acons param (round (/ results total-trades)) scores2))(print scores2)
+
+      (if (> results prev-result) (setq prev-result results best-param param))
+      (format T "~%BEST ENTRY SO FAR= ~A" best-param));;;closes the do
+
+
+      ))
+
+
+;;;;;;;;;;;;;;;;;POSITION TRADES FUNCTIONS with vectors
+;;;;and improved objective exit
+
+(defun populate-position-trades3 (market date2 num &optional  (output T))
+ (let (date stop-long stop-short trades long short  trade-long  entry-short entry-long
+       ave-win ave-loss losers winners extended-trades trade-short prev-signal ctr date-1
+       (path1 (string-append *upper-dir-warehouse*  (format nil "~S" market) "positiontrades3.dat")))
+    (declare (ignore ctr))
+   (maind-x)(set-cat-list)(set-market market)
+
+
+   (setq date (add-mkt-days date2 (- num)))
+   (setq date-1 (getd date 'ydate))
+
+ ;;;;from date1 to date2
+ (dotimes (ith num)
+
+   (multiple-value-setq (entry-short entry-long) (vprices date 18 2.53 7))
+   (multiple-value-setq (prev-signal ctr)(vsignals date 18 2.53 7))
+
+   (setq  date-1 date date (add-mkt-days date 1))
+
+    (when (and (getd date 'rollover) long) (setq long (+ long (getd date 'rollover))
+        					 entry-long (+ entry-long (getd date 'rollover))
+    						 stop-long (+ stop-long (getd date 'rollover))))
+    (when (and (getd date 'rollover) short)(setq short (+ short (getd date 'rollover))
+    						 entry-short (+ entry-short (getd date 'rollover))
+     						 stop-short (+ stop-short (getd date 'rollover))))
+
+  ;;;;check if stopped out of prior position
+
+   (when long (setq stop-long (max stop-long entry-short)))
+   (when short (setq stop-short (min stop-short entry-long)))
+
+
+;;;check if stopped out
+   (when (and long (<= (getd date 'low) stop-long))
+          (push (- (min stop-long (getd date 'open)) long) trades)
+          (setq trade-long (apply #'vector
+               (append trade-long (list date (my-pretty-price (min stop-long (getd date 'open)))
+                       (round (* (index-point-value) (- (min stop-long (getd date 'open)) long)))))))
+          (push trade-long extended-trades)
+          (setq trade-long nil long nil stop-long nil))
+
+   (when (and short (>= (getd date 'high) stop-short))
+          (push (- short (max stop-short (getd date 'open))) trades)
+          (setq trade-short  (apply #'vector
+                (append trade-short  (list date (my-pretty-price (max stop-short (getd date 'open)))
+                 (round (* (index-point-value) (- short (max stop-short (getd date 'open)))))))))
+          (push trade-short extended-trades)
+          (setq trade-short nil short nil stop-short nil))
+
+;;;check if new entry
+
+    (when (and (not short)
+               (<= (getd date 'low) entry-short)
+               (eql prev-signal 'buy)
+               )
+          (setq short (min entry-short (getd date 'open))
+                 trade-short (create-position-entry-record-list1 date-1 -1 short)
+                 stop-short entry-long
+         ))
+
+
+    (when (and (not long)
+               (>= (getd date 'high) entry-long)
+               (eql prev-signal 'sell)
+               )
+           (setq long (max entry-long (getd date 'open))
+                 trade-long (create-position-entry-record-list1 date-1 1 long)
+                 stop-long entry-short
+              ))
+
+
+ ;;;check if stopped out on same day of entry
+   (when (and long (or (> (getd date 'open)(getd date 'close))
+                       (<= (getd date 'low) entry-short))
+               (<= (getd date 'low) stop-long))
+           (push (- stop-long long) trades)
+           (setq trade-long (apply #'vector
+                 (append trade-long
+                             (list date (my-pretty-price stop-long) (round (* (index-point-value)(- stop-long long)))))))
+           (push trade-long extended-trades)
+           (setq trade-long nil long nil stop-long nil))
+
+
+    (when (and long stop-long (<= (getd date 'open)(getd date 'close))
+                               (<= (getd date 'close) stop-long))
+           (push (- stop-long long) trades)
+           (setq trade-long (apply #'vector
+                 (append trade-long
+                     (list date (my-pretty-price stop-long) (round (* (index-point-value)(- stop-long long)))))))
+           (push trade-long extended-trades)
+           (setq trade-long nil long nil stop-long nil
+           ))
+
+
+    (when  (and short (or (< (getd date 'open)(getd date 'close))
+                          (>= (getd date 'high) entry-long))
+               (>= (getd date 'high) stop-short))
+           (push (- short stop-short) trades)
+           (setq trade-short (apply #'vector
+                 (append trade-short
+                         (list date (my-pretty-price stop-short) (round (* (index-point-value)(- short stop-short)))))))
+           (push trade-short extended-trades)
+           (setq trade-short nil short nil stop-short nil))
+
+
+    (when (and short stop-short (>= (getd date 'open)(getd date 'close))
+                                 (>= (getd date 'close) stop-short))
+           (push (- short stop-short) trades)
+           (setq trade-short (apply #'vector
+                (append trade-short
+                        (list date (my-pretty-price stop-short) (round (* (index-point-value)(- short stop-short)))))))
+           (push trade-short extended-trades)
+           (setq trade-short nil short nil stop-short nil
+           ))
+
+   );;;closes the dotimes
+
+
+  ;;;apply commission of $75 per round turn and slippage of 0 ticks per round turn
+   (setq trades (mapcar #'(lambda (s) (- s (/ *swing-commission* (index-point-value)) (* 0 (index-tick-size)))) trades))
+
+ (when output
+   (setq losers (remove-if #'plusp trades) winners (remove-if #'zerop (remove-if #'minusp trades))
+         ave-win   (/ (* (list-sum winners) (index-point-value)) (if (zerop (length winners)) 1 (length winners)))
+         ave-loss  (* (/ (list-sum losers) (if (zerop (length losers)) 1 (length losers))) (index-point-value))
+          )
+     (format output "~%~A~%" *data-name*)
+     (format output "P/L= ~D  NUMBER TRADES= ~A  ACCURACY= ~,1,2,'*,' F%  PAYOFF RATIO= ~,2,0,'*,' F~%~
+        P/L PER TRADE= ~D AVERAGE GAIN= ~D  AVERAGE LOSS= ~D~%LARGEST LOSS= ~D  PROFIT FACTOR= ~,2,0,'*,' F  ~
+          DRAWDOWN= ~D"
+       (round (* (list-sum trades) (or (index-point-value) 1))) (length trades)
+       (/ (- (length trades) (length losers))
+          (if (zerop (length trades)) 1 (length trades)))
+       (abs (if (zerop ave-loss) 0 (/ ave-win ave-loss)))
+       (round (/ (* (list-sum trades) (or (index-point-value) 1)) (if (zerop (length trades)) 1 (length trades))))
+       (round ave-win)
+       (round ave-loss)
+       (round (* (or (min* losers) 0) (or (index-point-value) 1)))
+       (/ (* (length winners) ave-win) (* (if (zerop (length losers)) 1 (length losers))
+                                          (abs (if (zerop ave-loss) 1 ave-loss) )))
+        (round (* (drawdown trades)(or (index-point-value) 1)))
+     );close the format
+
+
+   (with-open-file (stream path1 :direction :output :if-exists :supersede :if-does-not-exist :create)
+
+    (dolist (ith extended-trades)
+
+    (format stream "~S~%" ith)
+
+    ));;closes the dolist and with-open-file
+   ); closes the when
+
+
+
+    (values (round (* (list-sum trades) (or (index-point-value) 1)))
+            (length trades) trades)
+   ));;;closes the let and the defun
+
+
+
+
+;;;enters with stop orders and exits with stop loss orders and includes objectives
+;;;;also trails the stop loss based on slippage
+(defun position-simulation-test3 (market date2 num &optional (stocks nil)(features *position-features3*))
+ (let (date stop-long stop-short trades long short ave4  trade-long  entry-long entry-short
+       cover-long cover-short ave-win ave-loss losers winners extended-trades trade-short (twr-long 1)(twr-short 1)
+       risk risk-long risk-short  epsignal longs long-gains long-acc trading-dates (trade-time 0)
+       shorts short-gains short-acc prev-signal ctr date-1 record (running-sum 0) bin draw
+       (summary-path (string-append *output-upper-dir* (format nil "~S" market) "position-summary3.dat"))
+       (AT (make-hash-table)) (VT (make-hash-table))
+       (path1 (string-append *output-upper-dir* (format nil "~S" market) "position-simulation3.dat"))
+       (path2 (string-append *output-upper-dir* (format nil "~S" market) "position-diary3.dat")))
+
+      (declare (ignore  short-acc long-acc ctr))
+    (if stocks (Setq *stocks* T))
+   (apply #'position-trade-bins3 features)
+   (set-market market)
+
+   (setq date (add-mkt-days date2 (- num)))
+    (setq record (list date (getd date 'close) 0 0 0))
+    (push record trading-dates)
+ ;;;;from date1 to date2
+ (dotimes (ith num)
+
+    (cond ((gethash  date  AT))
+          (t (setf (gethash date AT) (ave date 5 'pivot))))
+
+   (cond ((gethash date VT))
+         (t (setf (gethash date VT) (volatility-log date 60 1))));;;volatility over the past three months
+
+   (multiple-value-setq (entry-short entry-long)
+        (vprices date 18 2.53 7))
+
+   (setq entry-short (min entry-short (getd date 'close)) entry-long (max entry-long (getd date 'close)))
+;;;this is a black swan objective
+   (setq ave4 (gethash date AT)
+       cover-short  (my-pretty-price (exp (- (log ave4) (* *objective-factor-position* (gethash date VT)))))
+       cover-long (my-pretty-price (exp (+ (log ave4) (* *objective-factor-position* (gethash date VT))))))
+
+
+   (setq risk-short (my-pretty-price (* *stop-loss-position* (abs (- entry-short (n-day-high date 7 'close))))))
+
+   (setq risk-long  (my-pretty-price (* *stop-loss-position* (abs (- entry-long  (n-day-low date 7 'close))))))
+
+   (setq risk (max risk-long risk-short))
+
+   (setq date-1 date date (add-mkt-days date 1))
+
+   (setq record (list date (getd date 'close) 0 0 0))
+   (if long (setf (nth 2 record) 1))
+   (if short (setf (nth 2 record) -1))
+
+;;;if long or short and not entry or exits
+      (if long (setf (nth 3 record) (- (getd date 'close) (getd date-1 'close))))
+      (if short (setf (nth 3 record)(- (getd date-1 'close)(getd date 'close))))
+
+    (when (and (getd date 'rollover) long)
+             (setq long (+ long (getd date 'rollover))
+        	   entry-long (+ entry-long (getd date 'rollover))
+    		   stop-long (+ stop-long (getd date 'rollover)))
+             (setf (nth 3 record)(- (nth 3 record) (getd date 'rollover)))
+)
+    (when (and (getd date 'rollover) short)
+            (setq short (+ short (getd date 'rollover))
+    		  entry-short (+ entry-short (getd date 'rollover))
+    		  stop-short (+ stop-short (getd date 'rollover)))
+            (setf (nth 3 record) (+ (nth 3 record) (getd date 'rollover)))
+)
+
+
+   (when long (setq stop-long (fmax stop-long entry-short)))
+
+   (when short (setq stop-short (fmin stop-short entry-long)))
+
+;;;;check if stopped out of prior position
+
+   (when (and long (<= (getd date 'low) stop-long))
+          (push (- (min stop-long (getd date 'open)) long) trades)
+          (setq trade-long (apply #'vector
+             (append trade-long
+              (list date 'exit (min stop-long (getd date 'open)) (- (min stop-long (getd date 'open)) long)))))
+          (push trade-long extended-trades)(setq trade-time (+ trade-time 1 (sub-mkt-dates (svref trade-long 0) (svref trade-long 3))))
+          (setf (nth 2 record) 1)
+          (setf (nth 3 record) (- (min stop-long (getd date 'open)) (getd date-1 'close)))
+          (if (getd date 'rollover)(setf (nth 3 record)(- (nth 3 record) (getd date 'rollover))))
+          (setq trade-long nil long nil stop-long nil))
+
+   (when (and short (>= (getd date 'high) stop-short))
+          (push (- short (max stop-short (getd date 'open))) trades)
+          (setq trade-short (apply #'vector
+            (append trade-short
+              (list date 'exit (max stop-short (getd date 'open)) (- short (max stop-short (getd date 'open)))))))
+          (push trade-short extended-trades)(setq trade-time (+ trade-time 1 (sub-mkt-dates (svref trade-short 0) (svref trade-short 3))))
+          (setf (nth 2 record) -1)
+          (setf (nth 3 record) (- (getd date-1 'close) (max stop-short (getd date 'open))))
+          (if (getd date 'rollover) (setf (nth 3 record)(+ (nth 3 record) (getd date 'rollover))))
+          (setq trade-short nil short nil stop-short nil))
+
+  ;;;check if met objective
+     (when (and long (> (getd date 'high) cover-long))
+            (push (- (max (getd date 'open) cover-long) long) trades)
+            (setq trade-long (apply #'vector
+               (append trade-long
+                  (list date 'exit (max (getd date 'open) cover-long) (- (max (getd date 'open) cover-long) long)))))
+            (push trade-long extended-trades)(setq trade-time (+ trade-time 1 (sub-mkt-dates (svref trade-long 0) (svref trade-long 3))))
+            (setf (nth 2 record) 1)
+            (setf (nth 3 record) (- (max (getd date 'open) cover-long) (getd date-1 'close)))
+            (if (getd date 'rollover)(setf (nth 3 record)(- (nth 3 record) (getd date 'rollover))))
+            (setq trade-long nil long nil stop-long nil))
+
+      (when (and short (< (getd date 'low) cover-short))
+            (push (- short (min (getd date 'open) cover-short)) trades)
+            (setq trade-short (apply #'vector
+               (append trade-short (list date 'exit cover-short (- short (min (getd date 'open) cover-short))))))
+            (push trade-short extended-trades)(setq trade-time (+ trade-time 1 (sub-mkt-dates (svref trade-short 0) (svref trade-short 3))))
+            (setf (nth 2 record) -1)
+            (setf (nth 3 record) (- (getd date-1 'close) (min (getd date 'open) cover-short)))
+            (if (getd date 'rollover)(setf (nth 3 record)(+ (nth 3 record) (getd date 'rollover))))
+            (setq trade-short nil short nil stop-short nil))
+
+;;;;calculate bin-classifier only as needed
+ (when (or (<= (getd date 'low) entry-short)
+           (>= (getd date 'high) entry-long)
+               )
+       (multiple-value-setq (epsignal longs long-gains long-acc shorts short-gains short-acc bin)
+                   (bin-classifier-positions3 date-1 features))
+       (setq twr-short (position-bin-twr3 bin))(setf (nth 0 bin) 1)
+       (setq twr-long (position-bin-twr3 bin))
+       (multiple-value-setq (prev-signal ctr)(vsignals date-1 18 2.53 7)))
+
+
+;;;check if new entry
+
+    (when (and (not short)
+               (<= (getd date 'low) entry-short)
+              ; (>= (getd date 'high) entry-short)
+               (member epsignal '(OK DOWN))
+               (eql prev-signal 'BUY)(> shorts 0)
+               (>= (/ short-gains shorts) 150) (> twr-short 1)
+               (<= (* risk (index-point-value)) *max-position-risk*)
+               )
+          (setq short (min entry-short (getd date 'open))
+                 trade-short (list date 'short short)
+                 stop-short (+ entry-short risk-short))
+          (setf (nth 2 record) -1)
+          (setf (nth 3 record) (+ (nth 3 record)
+                (- short (getd date 'close)(/ *swing-commission* (index-point-value)))))
+
+              )
+
+    (when (and (not long)
+               (>= (getd date 'high) entry-long)
+               ;(<= (getd date 'low) entry-long)
+               (member epsignal '(OK UP))
+               (eql prev-signal 'SELL)(> longs 0)
+               (>= (/ long-gains longs) 150) (> twr-long 1)
+               (<= (* risk (index-point-value)) *max-position-risk*)
+               )
+           (setq long (max entry-long (getd date 'open))
+                 trade-long (list date 'long long)
+                 stop-long (- entry-long risk-long))
+           (setf (nth 2 record) 1)
+           (setf (nth 3 record) (+ (nth 3 record)
+                 (- (getd date 'close) long (/ *swing-commission* (index-point-value)))))
+
+             )
+
+
+ ;;;check if stopped out on same day of entry
+   (when (and long (or (> (getd date 'open)(getd date 'close))
+                       (<= (getd date 'low) entry-short))
+               (<= (getd date 'low) stop-long))
+           (push (- stop-long long) trades)
+           (setq trade-long (apply #'vector (append trade-long (list date 'exit stop-long (- stop-long long)))))
+           (push trade-long extended-trades)(setq trade-time (+ trade-time 1))
+           (setf (nth 2 record) 1)
+           (setf (nth 3 record) (+ (nth 3 record)(- stop-long long)))
+           (setf (nth 3 record) (- (nth 3 record)(- (getd date 'close) long)))
+           (setq trade-long nil long nil stop-long nil))
+
+
+    (when (and long stop-long (<= (getd date 'open)(getd date 'close))
+                               (<= (getd date 'close) stop-long))
+           (push (- stop-long long) trades)
+           (setq trade-long (apply #'vector (append trade-long (list date 'exit stop-long (- stop-long long)))))
+           (push trade-long extended-trades)(setq trade-time (+ trade-time 1))
+           (setf (nth 2 record) 1)
+           (setf (nth 3 record) (+ (nth 3 record) (- stop-long long)))
+           (setf (nth 3 record) (- (nth 3 record)(- (getd date 'close) long)))
+           (setq trade-long nil long nil stop-long nil
+           ))
+
+
+    (when  (and short (or (< (getd date 'open)(getd date 'close))
+                          (>= (getd date 'high) entry-long))
+               (>= (getd date 'high) stop-short))
+           (push (- short stop-short) trades)
+           (setq trade-short (apply #'vector (append trade-short (list date 'exit stop-short (- short stop-short)))))
+           (push trade-short extended-trades)(setq trade-time (+ trade-time 1))
+           (setf (nth 2 record) -1)
+           (setf (nth 3 record) (+ (nth 3 record)(- short stop-short)))
+           (setf (nth 3 record) (- (nth 3 record)(- short (getd date 'close))))
+           (setq trade-short nil short nil stop-short nil))
+
+
+    (when (and short stop-short (>= (getd date 'open)(getd date 'close))
+                                 (>= (getd date 'close) stop-short))
+           (push (- short stop-short) trades)
+           (setq trade-short (apply #'vector  (append trade-short (list date 'exit stop-short (- short stop-short)))))
+           (push trade-short extended-trades)(setq trade-time (+ trade-time 1))
+           (setf (nth 2 record) -1)
+           (setf (nth 3 record) (+ (nth 3 record) (- short stop-short)))
+           (setf (nth 3 record) (- (nth 3 record)(- short (getd date 'close))))
+           (setq trade-short nil short nil stop-short nil
+           ))
+
+
+ ;;;check if met objective
+ ;;;adjust cover-long and cover-short prices
+ ;;;to exit at the volatility bands in case the
+ ;;;trade outlook changes.
+#|
+    (when (and short
+               (<= (getd date 'low) entry-short)
+               (> shorts 0)(<= short-gains 0)
+               (< twr-short 1)
+               )
+          (setq cover-short (min entry-short (getd date 'open)))
+              )
+
+    (when (and long
+               (>= (getd date 'high) entry-long)
+               (> longs 0)(<= long-gains 0)
+               (< twr-long 1)
+               )
+           (setq cover-long (max entry-long (getd date 'open)))
+             )
+|#
+
+     (cond ((and long (> (getd date 'high) cover-long))
+            (push (- cover-long long) trades)
+            (setq trade-long (apply #'vector (append trade-long (list date 'exit cover-long (- cover-long long)))))
+            (push trade-long extended-trades)(setq trade-time (+ trade-time 1))
+            (setf (nth 2 record) 1)
+            (setf (nth 3 record) (+ (nth 3 record)(- cover-long long)))
+            (setf (nth 3 record) (- (nth 3 record)(- (getd date 'close) long)))
+            (setq trade-long nil long nil stop-long nil))
+           ((and short (< (getd date 'low) cover-short))
+            (push (- short cover-short) trades)
+            (setq trade-short (apply #'vector (append trade-short (list date 'exit cover-short (- short cover-short)))))
+            (push trade-short extended-trades)(setq trade-time (+ trade-time 1))
+            (setf (nth 2 record) -1)
+            (setf (nth 3 record) (+ (nth 3 record) (- short cover-short)))
+            (setf (nth 3 record) (- (nth 3 record)(- short (getd date 'close))))
+            (setq trade-short nil short nil stop-short nil)))
+
+
+      (setf (nth 4 record) (+ (nth 3 record) running-sum))
+      (setq running-sum (nth 4 record))
+      (push record trading-dates)
+      (setq record nil)
+
+
+   );;;closes the dotimes
+
+   (with-open-file (stream path2 :direction :output :if-exists :supersede :if-does-not-exist :create)
+     (dolist (ith trading-dates)
+     (format stream "~A\,~F\,~D\,~D,~D~%"
+           (first ith) (second ith) (third ith) (round (* (index-point-value)(nth 3 ith)))
+           (round (* (index-point-value) (nth 4 ith))))
+     ))
+  ;;;apply commission of $75 per round turn and slippage of 0 ticks per round turn
+   (setq trades (mapcar #'(lambda (s) (- s (/ *swing-commission* (index-point-value)) (* 0 (index-tick-size)))) trades))
+
+ (with-open-file (str summary-path :direction :output :if-exists :supersede :if-does-not-exist :create)
+   (setq losers (remove-if #'plusp trades) winners (remove-if #'zerop (remove-if #'minusp trades))
+         ave-win   (/ (* (list-sum winners) (index-point-value)) (if (zerop (length winners)) 1 (length winners)))
+         ave-loss  (* (/ (list-sum losers) (if (zerop (length losers)) 1 (length losers))) (index-point-value))
+          )
+
+     (format str "~A traded from ~A to ~A~%" (index-lname) (date-convert (add-mkt-days date2 (- num)))(date-convert date2))
+
+      (format str "P/L= ~16D  NUMBER TRADES=   ~6D   ACCURACY=       ~,1,2,'*,' F%~%~
+        P/L PER TRADE= ~6D  AVERAGE GAIN=  ~8D   AVERAGE LOSS=~8D~%~
+        PAYOFF RATIO=    ~4,2,0,'*,' F  ~
+        LARGEST LOSS=   ~7D   LARGEST GAIN= ~7D~%~
+        PROFIT FACTOR=   ~,2,0,'*,' F  AVE DAYS IN TRADE= ~F~%~
+        DRAWDOWN= ~11D  $/contract=  ~10D  "
+
+       (round (* (list-sum trades) (or (index-point-value) 1))) (length trades)
+       (/ (- (length trades) (length losers))
+          (if (zerop (length trades)) 1 (length trades)))
+
+       (round (/  (* (list-sum trades) (or (index-point-value) 1)) (if (zerop (length trades)) 1 (length trades))))
+       (round ave-win)
+       (round ave-loss)
+       (abs (if (zerop ave-loss) 0 (/ ave-win ave-loss)))
+       (round (* (or (min* losers) 0) (or (index-point-value) 1)))
+
+       (round (* (or (max* winners) 0)(or (index-point-value) 1)))
+       (/ (* (length winners) ave-win) (* (if (zerop (length losers)) 1 (length losers))
+                                          (abs (if (zerop ave-loss) 1 ave-loss) )))
+      (my-round (/ trade-time (if (zerop (length trades)) 1 (length trades))) 1)
+      (setq draw (round (* (drawdown trades)(or (index-point-value) 1))))
+      (if (plusp (list-sum trades))
+          (round (optimal-f (mapcar #'(lambda (s) (* s (or (index-point-value) 1))) trades))) 0)
+       )
+
+     (format str "~%~%MIN INITIAL $=      ~5D" (* 1000 (ceiling (* 3 (abs draw)) 1000)))
+     (format str "~%AVE ANNUAL RETURN= ~5,1,0,'*,' F%"
+          (* 100 (/ (/ (* (list-sum trades) (or (index-point-value) 1))
+                       (/ (subtract-dates (add-mkt-days date2 (- num)) date2)
+                                           365.25))
+                       (* 1000 (ceiling (max 1.0 (* 3 (abs draw))) 1000))) ))
+
+   (with-open-file (stream path1 :direction :output :if-exists :supersede :if-does-not-exist :create)
+
+    (dolist (ith extended-trades)
+
+    (format stream "~A\,~A\,~F\,~A\,~A\,~F\,~F\,~D~%"
+         (svref ith 0)(svref ith 1)(svref ith 2)(svref ith 3)(svref ith 4)(svref ith 5)(svref ith 6)(round (* (index-point-value) (svref ith 6))))
+    ));;closes the dolist and with-open-file
+   ); closes the when
+
+    (values (round (* (list-sum trades) (or (index-point-value) 1)))
+            (length trades) trades)
+   ));;;closes the let and the defun
+
+
+(defun position-trade-bins3 (&rest features)
+  (let (bin path)
+  (if *stocks* (setq path (string-append *upper-dir-warehouse* "stockspositionwarehouse3.dat"))
+    (setq path (string-append *upper-dir-warehouse* "positiontradewarehouse3.dat")))
+  (maind-x)(set-cat-list)
+  (setq positions nil position-bin-codes nil)(clrhash *position-trade-warehouse3*)
+    (with-open-file (str path :direction :input)
+      (do ((record (read str nil 'eof) (read str nil 'eof)))
+          ((eql record 'eof))
+       (push record positions)))
+
+
+;;;;now all the trades are in the list swings.
+;;;we now assign/sort the trades into bins
+;;;basically process a record list into a code or bin
+;;;and create a code
+
+   (dolist (record positions)
+     (setq bin (encode-position-trades3 record features))
+     (pushnew bin position-bin-codes :test #'equal)
+     (cond ((gethash bin *position-trade-warehouse3*)
+            (ifn (member record (gethash bin *position-trade-warehouse3*) :test #'equal)
+                 (setf (gethash bin *position-trade-warehouse3*)
+                       (cons record (gethash bin *position-trade-warehouse3*)))))
+           ((not (gethash bin *position-trade-warehouse3*))
+             (setf (gethash bin *position-trade-warehouse3*)
+              (list record)))))
+
+    (format T  "~%FEATURES = ~A~%" features)
+    (rank-position-bins-by-profit3 positions)
+
+
+  ))
+
+
+
+(defun rank-position-bins-by-profit3 (positions)
+  (let (contents (result 0) profit-list (all-winners 0)(all-losers 0) (twr 1)
+       (winners 0)(losers 0) (counter 0) (only-one 0) (num-in-winning-bins 0))
+   (dolist (ith position-bin-codes)
+     (setq contents (gethash ith *position-trade-warehouse3*))
+     (setq result 0 counter 0 twr 1)
+
+     (if (= (length contents) 1) (incf only-one))
+     (dolist (kth contents)
+         (setq result (+ result (svref kth 19)))
+         (if (plusp (svref kth 19)) (incf counter))
+         (setq twr (* twr (+ 1 (/ (if (plusp (svref kth 2))
+                                 (- (svref kth 18) (svref kth 3))
+                               (- (svref kth 3) (svref kth 18)))
+                             (svref kth 3)))))
+         ) ;;;closes dolist over contents
+      (if (and (plusp result)(> twr 1)) (setq num-in-winning-bins (+ num-in-winning-bins (length contents))))
+
+
+     (setq profit-list
+      (cons (list result twr (/ result (length contents))
+                (/ counter (length contents)) (length contents) ith) profit-list)));;;closes dolist over bin-codes
+
+    (dolist (kth positions)
+       (if (plusp (svref kth 19)) (setq all-winners (+ all-winners (svref kth 19)))
+          (setq all-losers (+ all-losers (svref kth 19)))))
+
+     (setq counter 0)
+     (dolist (jth profit-list)
+         (if (and (plusp (car jth))(> (second jth) 1))
+             (setq winners (+ winners (car jth)) counter (+ 1 counter))
+         (setq losers (+ losers (car jth)))))
+
+     (format T "NUMBER OF TRADES = ~A  in ~D MARKETS~%" (length positions)(length (num-markets-in-warehouse3 positions)))
+     (format T "ALL WINNERS = ~A   ALL LOSERS = ~A~%~%" all-winners all-losers)
+     (format T "NUMBER of ALL BINS = ~D~%" (length position-bin-codes))
+     (format T "RATIO OF TRADES TO BINS = ~F~%" (my-round (/ (length positions)(length position-bin-codes)) 1))
+     (format T "WINNING BIN PROFITS = ~A  IN ~D WINNING BINS~%~%" winners counter)
+     (format T "RATIO OF BIN PROFITS TO ALL WINNERS = ~F~%" (my-round (/ winners all-winners) 2))
+     (format T "NUMBER OF TRADES IN THE WINNING BINS = ~D~%" num-in-winning-bins)
+     (format T "PROFIT PER TRADE IN WINNING BINS = ~A~%~%" (if (zerop num-in-winning-bins) 0 (round (/ winners num-in-winning-bins))))
+     (format T "NUMBER OF BINS WITH ONLY 1 TRADE = ~D~%" only-one)
+     (format T "RATIO OF ONLY 1 TRADE BINS TO ALL BINS = ~F~%~%" (my-round (/ only-one (length position-bin-codes)) 2))
+     (format T "RATIO OF ONLY 1 TRADE BINS TO ALL TRADES = ~F~%~%" (my-round (/ only-one (length positions)) 2))
+
+    (values (round winners)(round (+ all-winners all-losers)))
+
+ ))
+
+
+;;;returns a list of nine codes
+(defun encode-position-trades3 (record features)
+  (let (bin-list)
+
+    (dolist (ith features)
+     (case ith
+;;;;Feature 1 has 2 levels
+     (1 (push (svref record 2) bin-list));;;adds the direction
+
+;;;Feature 2 with 5 levels; This is the TS5
+
+      (2 (case  (svref record 4)
+             (DN (push -1 bin-list))
+             (CD (push -2 bin-list))
+             (UP (push 1 bin-list))
+             (CU (push 2 bin-list))
+             (FT (push 0 bin-list))
+             ) )
+;;;Feature 3 with 5 levels; This is TS15
+
+       (3  (case  (svref record 5)
+             (DN (push -1 bin-list))
+             (CD (push -2 bin-list))
+             (UP (push 1 bin-list))
+             (CU (push 2 bin-list))
+             (FT (push 0 bin-list))
+             ) )
+
+;;;Feature 4 with 5 levels; This is TS45
+
+      (4   (case  (svref record 6)
+             (DN (push -1 bin-list))
+             (CD (push -2 bin-list))
+             (UP (push 1 bin-list))
+             (CU (push 2 bin-list))
+             (FT (push 0 bin-list))
+             ) )
+
+ ;;;Feature 5 with 5 levels; This is TS135
+
+      (5   (case  (svref record 7)
+             (DN (push -1 bin-list))
+             (CD (push -2 bin-list))
+             (UP (push 1 bin-list))
+             (CU (push 2 bin-list))
+             (FT (push 0 bin-list))
+             ) )
+ ;;;;Feature 6 with 10 levels ;this is the HT ratio of volatility
+
+      (6 (cond ((< (svref record 8) .60) (push 5 bin-list))
+               ((and (>= (svref record 8) .60)(< (svref record 8) .70)) (push 4 bin-list))
+               ((and (>= (svref record 8) .70)(< (svref record 8) .80)) (push 3 bin-list))
+               ((and (>= (svref record 8) .80)(< (svref record 8) .90)) (push 2 bin-list))
+               ((and (>= (svref record 8) .90)(< (svref record 8) 1.0)) (push 1 bin-list))
+               ((and (>= (svref record 8) 1.0)(< (svref record 8) 1.10)) (push -1 bin-list))
+               ((and (>= (svref record 8) 1.10)(< (svref record 8) 1.20)) (push -2 bin-list))
+               ((and (>= (svref record 8) 1.20)(< (svref record 8) 1.30)) (push -3 bin-list))
+               ((and (>= (svref record 8) 1.30)(< (svref record 8) 1.40)) (push -4 bin-list))
+               ((>= (svref record 8) 1.40)(push -5 bin-list))))
+
+
+     ;;;;Feature 7 with 9 levels bar type
+
+          (7 (case  (svref record 9)
+               (11 (push 0 bin-list))
+               (12 (push 1 bin-list))
+               (13 (push 2 bin-list))
+               (21 (push 3 bin-list))
+               (22 (push 4 bin-list))
+               (23 (push 5 bin-list))
+               (31 (push 6 bin-list))
+               (32 (push 7 bin-list))
+               (33 (push 8 bin-list)) ))
+
+;;;;;;Feature 8 with 5 levels of bar relationship to the previous bar
+
+       (8 (case (svref record 10)
+               (IN (push -2 bin-list))
+               (OU (push 2 bin-list))
+               (DN (push -1 bin-list))
+               (UP (push 1 bin-list))
+               (FT (push 0 bin-list))
+                             ))
+;;;;feature 9 with 5 levels of previous bar relationship to its prior bar
+
+         (9 (case (svref record 11)
+               (IN (push -2 bin-list))
+               (OU (push 2 bin-list))
+               (DN (push -1 bin-list))
+               (UP (push 1 bin-list))
+               (FT (push 0 bin-list))
+                     ))
+
+ ;;;;Feature 10 with 7 levels ;item 12 is the stochastic with parameter 21
+     (10 (cond ((<= (svref record 12) 10) (push 3 bin-list))
+              ((and (> (svref record 12) 10)(<= (svref record 12) 20)) (push 2 bin-list))
+              ((and (> (svref record 12) 20)(<= (svref record 12) 40)) (push 1 bin-list))
+              ((and (> (svref record 12) 40)(<= (svref record 12) 60)) (push 0 bin-list))
+              ((and (> (svref record 12) 60)(<= (svref record 12) 80)) (push -1 bin-list))
+              ((and (> (svref record 12) 80)(<= (svref record 12) 90)) (push -2 bin-list))
+              ((>= (svref record 12) 90) (push -3 bin-list))))
+
+
+;;;Feature 11 with 5 levels; this is the rsi-trend 5
+
+      (11  (push (svref record 13) bin-list))
+
+
+;;;;Feature 12 with 6 levels ; This is rsi trend 15
+      (12  (push (svref record 14) bin-list))
+
+
+;;;Feature 13 with 5 levels is the trend-signal 45
+       (13 (push (svref record 15) bin-list))
+
+
+;;;Feature 14 with 6 levels is the pivot-index with date-1
+       (14  (push (svref record 16) bin-list))
+
+
+
+                ));;;closes the case and the dolist over features
+
+      (reverse bin-list)
+ ))
+
+;;;calculates the twr for a bin
+;;;must run #'position-trade-bins3 before running this function
+(defun position-bin-twr3 (bin)
+  (let ((twr 1))
+
+   (dolist (record (gethash bin *position-trade-warehouse3*))
+     (setq twr (* twr (+ 1 (/ (if (plusp (svref record 2))
+                                 (- (svref record 18) (svref record 3))
+                               (- (svref record 3) (svref record 18)))
+                             (svref record 3)))
+                           )))
+  twr
+))
+
+
+
+;;;;returns if date is bullish or bearish and expected value and accuracy and number in warehouse
+(defun bin-classifier-positions3 (date features)
+  (let (record bin (result 0) (counter 0) contents epsignal (nxdate (getd date 'ndate))
+        (longs 0)(shorts 0) (results-long 0) (results-short 0)(num-winners-long 0)(num-winners-short 0))
+
+    (setq record (create-position-entry-record-list1 date 1 nil))
+    (setq record (apply #'vector (append record '(nil nil nil))))
+
+
+  (setq bin (encode-position-trades3 record features))
+  (setq contents (gethash bin *position-trade-warehouse3*))
+      ;;; then look for short trades. rule All bins are long or short trades
+    (setf (nth 0 bin) -1)
+    (setq contents (append (gethash bin *position-trade-warehouse3*) contents))
+
+
+   (setq contents
+    (remove-if #'(lambda(s1) (and (eql *data-name* (svref s1 0))
+                                  (eql nxdate (svref s1 1)))) contents))
+
+   (dolist (kth contents)
+
+     (when (eql (svref kth 2) 1)
+      (incf longs) (setq results-long (+ results-long (svref kth 19))))
+
+    (when (and (eql (svref kth 2) 1)(plusp (svref kth 19)))
+       (incf num-winners-long))
+
+     (when (eql (svref kth 2) -1)
+      (incf shorts)(setq results-short (+ results-short (svref kth 19))))
+
+     (when (and (eql (svref kth 2) -1)(plusp (svref kth 19)))
+        (incf num-winners-short))
+        );;;closes dolist over contents
+  (setq result 0)
+  (dolist (jth contents)
+         (setq result (+ result (svref jth 19)))
+        (if (plusp (svref jth 19)) (incf counter))) ;;;closes dolist over contents
+
+  (cond ((and (plusp results-long)(plusp results-short)) (setq epsignal 'OK))
+        ((plusp results-long) (setq epsignal 'UP))
+        ((plusp results-short) (setq epsignal 'DOWN))
+        ((and (<= results-long 0)(<= results-short 0)) (setq epsignal 'AVOID))
+        ((not contents) (setq epsignal 'UNIQUE)))
+
+  (values epsignal longs results-long (if (zerop longs) 0 (/ num-winners-long longs))
+         shorts results-short
+          (if (zerop shorts) 0 (/ num-winners-short shorts))
+          bin)
+ ))
+
+
+
+;;;
+;;;
+;;;
+;;;the entry time is the later of 19:01:00 or the start of the electronic session plus one minute
+(defun write-ninja-record (output-ninja time-zone date date1 direction entry-price stop-loss-price)
+   (let (ninja-symbol contract-month entry-time exit-time date0 central-cancel-time (offset (random-choice -1 0)))
+   (setq ninja-symbol (cdr (assoc *data-name* *ninja-symbol*))
+         exit-time (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) offset T)
+         entry-time (second (assoc *data-name* *foremost-market-times-list*))
+	     date0 (add-days-to-date date1 -1)
+	     contract-month (ninja-contract-month (contract-month *data-name* date)) ;;;(third (assoc *data-name* *C-list*)))
+         central-cancel-time (string-append (date-convert date1) " " (add-minutes1 (third (assoc *data-name* *foremost-market-times-list*)) -26)))
+
+       (format output-ninja "~A\, ~A\, ~A\, ~A\, ~A ~A\, ~A\, ~A ~A\, "
+	         direction ninja-symbol  contract-month time-zone (if (> (length entry-time) 7) (date-convert date0) (date-convert date1))
+             entry-time central-cancel-time (date-convert date1) exit-time)
+
+      (if entry-price
+       (if (member *data-name* '(US.D1B TY.D1B))
+           (format output-ninja "~7@A, " (my-round (convert-to-decimal (my-round (convert-to-32 entry-price) 2)) 5))
+         (format output-ninja
+             (if (and (nth 1 (assoc *data-name* *C-list*))
+                      (zerop (nth 1 (assoc *data-name* *C-list*))))
+                 "~D, "
+             (string-append  "~7," (format nil "~A" (nth 2 (assoc *data-name* *ninja-price-conversion-factor*))) ",0,'*,' F, "))
+              (* (cadr (assoc *data-name* *ninja-price-conversion-factor*))
+                 (* (nth 4 (assoc *data-name* *C-list*)) (round entry-price (nth 4 (assoc *data-name* *C-list*)))))))
+
+         )
+
+      ;  (format T "stop-price=~A ~%" stop-price)
+
+       (if stop-loss-price
+        (if (stringp stop-loss-price)
+            (format output-ninja "~A ~%" stop-loss-price)
+           (if (member *data-name* '(US.D1B TY.D1B))
+               (format output-ninja "~7@A ~%" (my-round (convert-to-decimal (my-round (convert-to-32 stop-loss-price) 2)) 5))
+            (format output-ninja
+             (if (and (nth 1 (assoc *data-name* *C-list*))
+                      (zerop (nth 1 (assoc *data-name* *C-list*))))
+                 "~D ~%"
+              (string-append "~7," (format nil "~A" (nth 2 (assoc *data-name* *ninja-price-conversion-factor*))) ",0,'*,' F ~%"))
+               (* (cadr (assoc *data-name* *ninja-price-conversion-factor*))
+                   (* (nth 4 (assoc *data-name* *C-list*)) (round stop-loss-price (nth 4 (assoc *data-name* *C-list*)))))))
+                  )
+             )
+
+    ));;closes the let and defun
+
+;;;write-ninja-record and write-rjo-record both use the ninja price conversion table in open.lisp
+(defun write-rjo-record (output-rjo direction entry-price stop-loss-price)
+   (let (rjo-symbol contract-month)
+   (setq rjo-symbol (cdr (assoc *data-name* *rjo-symbol*))
+         contract-month (third (assoc *data-name* *C-list*)))
+
+   (format output-rjo "~%~A\, ~A\, ~A\,  " direction rjo-symbol contract-month)
+
+
+      (if entry-price
+       (if (member *data-name* '(US.D1B TY.D1B))
+           (format output-rjo "~7@A\, " (convert-to-32nds entry-price))
+         (format output-rjo
+             (if (and (nth 1 (assoc *data-name* *C-list*))
+                      (zerop (nth 1 (assoc *data-name* *C-list*))))
+                 "~D, "
+             (string-append  "~7," (format nil "~A" (nth 2 (assoc *data-name* *ninja-price-conversion-factor*))) ",0,'*,' F, "))
+              (* (cadr (assoc *data-name* *ninja-price-conversion-factor*))
+                 (* (nth 4 (assoc *data-name* *C-list*)) (round entry-price (nth 4 (assoc *data-name* *C-list*)))))))
+
+         )
+
+      ;  (format T "stop-price=~A ~%" stop-price)
+
+       (if stop-loss-price
+        (if (stringp stop-loss-price)
+            (format output-rjo "~A ~%" stop-loss-price)
+           (if (member *data-name* '(US.D1B TY.D1B))
+               (format output-rjo "~7@A ~%" (convert-to-32nds stop-loss-price))
+            (format output-rjo
+             (if (and (nth 1 (assoc *data-name* *C-list*))
+                      (zerop (nth 1 (assoc *data-name* *C-list*))))
+                 "~D ~%"
+              (string-append "~7," (format nil "~A" (nth 2 (assoc *data-name* *ninja-price-conversion-factor*))) ",0,'*,' F ~%"))
+               (* (cadr (assoc *data-name* *ninja-price-conversion-factor*))
+                   (* (nth 4 (assoc *data-name* *C-list*)) (round stop-loss-price (nth 4 (assoc *data-name* *C-list*)))))))
+                  )
+             )
+
+));    closes the let and defun
+
+(defun write-oec-short (path3 oec-symbol block-account quantity entry-short stop-short entry-time cancel-time exit-time end-session-time oco-code)
+      (with-open-file (cannon-oec path3 :direction :output :if-exists :append :if-does-not-exist :create)
+              (write-oec-record cannon-oec "True" block-account "Sell" quantity oec-symbol "Stop" "None" entry-short
+				entry-time cancel-time oco-code) ;;;main entry order
+              (write-oec-record cannon-oec "True" block-account "Buy" quantity oec-symbol "Stop" "None" stop-short
+				entry-time end-session-time oco-code) ;;; stop loss order
+           ;  (write-oec-record cannon-oec "False" *cannon-score-block-acct* "Buy" *cannon-score-qty* oec-symbol "Limit" "None" cover-short
+	   ;  cannon-entry-time cannon-exit-time "None") ;;; objective limit order
+              (write-oec-record cannon-oec "True" block-account "Buy" quantity oec-symbol "Market" "None" ""
+				exit-time end-session-time oco-code) ;;; exit order
+))
+
+(defun write-oec-long (path3 oec-symbol block-account quantity entry-long stop-long entry-time cancel-time exit-time end-session-time oco-code)
+       (with-open-file (cannon-oec path3 :direction :output :if-exists :append :if-does-not-exist :create)
+              (write-oec-record cannon-oec "True" block-account "Buy" quantity oec-symbol "Stop" "None" entry-long
+				entry-time cancel-time oco-code) ;;;main entry order
+              (write-oec-record cannon-oec "True" block-account "Sell" quantity oec-symbol "Stop" "None" stop-long
+				entry-time end-session-time oco-code) ;;; stop loss order
+            ; (write-oec-record cannon-oec "False" *cannon-score-block-acct* "Sell" *cannon-score-qty* oec-symbol "Limit" "None" cover-long
+	    ; cannon-entry-time cannon-exit-time "None" ) ;;; objective limit order
+              (write-oec-record cannon-oec "True" block-account "Sell" quantity oec-symbol "Market" "None" ""
+				exit-time end-session-time oco-code) ;;; exit order
+))
+
+;;;;combines the trade files from a portfolio simulation
+(defun simulation-composite3 (time-frames &rest markets-ll)
+ (let (paths  time-frame records record1 (path-out nil) type)
+
+;   (maind-x)(set-cat-list)
+
+   (do* ((mkts markets-ll (cdr mkts))
+         (tmf time-frames (cdr tmf))
+         (time-frame (car tmf) (car tmf))
+         (markets (car mkts) (car mkts)))
+       ((null tmf))
+        (cond ((member time-frame '(epic forexday))(setq type 2 time-frame 'day))
+              ((eql time-frame 'day) (setq type 3))
+              ((eql time-frame 'day4)(setq type 4 time-frame 'day))
+              ((eql time-frame 'day5)(setq type 5 time-frame 'day))
+              ((eql time-frame 'day9)(setq type 9 time-frame 'day))
+              ((eql time-frame 'swing)(setq type 4)))
+       (dolist (market markets)
+          (push (string-append *output-upper-dir*
+            (format nil "~A~(~A~)-simulation~A.dat" market time-frame type)) paths));;;closes dolist over markets
+            );;closes the do over time-frames
+
+   (print paths)
+   (dolist (ith paths)
+     (when (probe-file ith)
+     (with-open-file (str ith :direction :input)
+      (do ((record (read-line str nil 'eof) (read-line str nil 'eof)))
+          ((eql record 'eof))
+        (setq record1 (mapcar #'(lambda(s) (read-from-string s)) (my-split-sequence #\, record)))
+ ;       (if (assoc (car record1) records)
+ ;           (setf (third (assoc (car record1) records))
+ ;                 (+ (abs (third (assoc (car record1) records))) (abs (third record1)))
+ ;             (fourth (assoc (car record1) records))
+ ;             (+ (fourth (assoc (car record1) records)) (fourth record1))
+           ;   (fifth (assoc (car record1) records))
+           ;   (+ (fifth (assoc (car record1) records)) (fifth record1))
+ ;             )
+         (push record1 records));;closes the do
+       ))) ;;closes with-open-file and the dolist over paths
+
+   (setq records (vsort records #'< 'car))
+
+   (setq time-frames (mapcar #'(lambda (s) (format nil "~A" s)) time-frames))
+   (setq time-frame (apply #'string-append time-frames) time-frame (read-from-string time-frame))
+   (setq path-out (string-append *output-upper-dir* "simulation-" (format nil "~(~A~)-" time-frame) "composite.csv"))
+
+   (if (probe-file path-out)
+       (delete-file path-out))
+
+   (with-open-file (stream path-out :direction :output :if-exists :supersede :if-does-not-exist :create)
+       (dolist (ith records)
+         (dotimes (jth (length ith))
+          (if (= jth (1- (length ith)))(format stream "~A~%" (nth jth ith))
+             (format stream "~A\," (nth jth ith))));;closes the dotimes
+        ));;;closes the with-open-file
+
+)) ;;closes the let and defun
+
+
+
+
+
+
+
+

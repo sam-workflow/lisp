@@ -1,0 +1,128 @@
+
+(defparameter *open-swings*
+
+  '(
+
+      (cl.d1b short 106.33 20140625 105.09)
+
+      (oj.d1b short 150.10 20140620 162.40)
+      (ho.d1b short 3.0106 20140623 3.0234)
+      (bo.d1b short 40.45 20140627 40.48)
+
+    ))
+
+(defparameter *c-list*
+    '(
+    (dj.d1b 0 "MAR16" "DOW JONES 30 E-mini" 1)
+    (sp.d1b 2 "MAR16" "S&amp;P 500 E-mini" .25)
+    (nd.d1b 2 "MAR16" "NASDAQ 100 E-mini" .25)
+    (ru.d1b 2 "MAR16" "RUSSELL 2000 E-mini" .1)
+    (nk.d1b 0 "MAR16" "NIKKEI 225 Globex" 5)
+
+    (ty.d1b nil "MAR16" "10-YEAR T-NOTES" nil)
+    (us.d1b nil "MAR16" "30-YEAR T-BONDS" nil)
+
+    (gc.d1b 2 "FEB16" "GOLD" .10)
+    (si.d1b 4 "MAR16" "SILVER" .0050)
+    (cp.d1b 4 "MAR16" "COPPER" .0005)
+
+    (pa.d1b 2 "MAR16" "PALLADIUM" .05)
+    (pl.d1b 2 "JAN16" "PLATINUM" .10)
+
+    (ad.d1b 4 "DEC15" "AUSTRALIAN DOLLAR" .0001)
+    (bp.d1b 4 "DEC15" "BRITISH POUND" .0001)
+    (cd.d1b 4 "DEC15" "CANADIAN DOLLAR" .0001)
+    (e1.d1b 4 "DEC15" "EURO CURRENCY" .0001)
+    (jy.d1b 4 "DEC15" "JAPANESE YEN" .0001)
+
+    (mx.d1b 3 "DEC15" "MEXICAN PESO" .025)
+
+    (sf.d1b 4 "DEC15" "SWISS FRANC" .0001)
+
+
+    (cl.d1b 2 "JAN16" "CRUDE OIL" .01)
+    (ho.d1b 4 "JAN16" "HEATING OIL" .0001)
+    (hu.d1b 2 "JAN16" "RBOB GASOLINE" .01)
+
+    (ng.d1b 3 "JAN16" "NATURAL GAS" .001)
+
+    (ct.d1b 2 "MAR16" "COTTON" .01)
+    (cc.d1b 0 "MAR16" "COCOA" 1)
+    (cf.d1b 2 "MAR16" "COFFEE" .05)
+
+    (lb.d1b 2 "JAN16" "LUMBER" .01)
+    (oj.d1b 2 "JAN16" "ORANGE JUICE" .05)
+
+    (su.d1b 2 "MAR16" "SUGAR" .01)
+
+    (c.d1b 2  "MAR16" "CORN" .25)
+    (s.d1b 2  "JAN16" "SOYBEANS" .25)
+    (bo.d1b 2 "JAN16" "SOYBEAN OIL" .01)
+    (sm.d1b 2 "JAN16" "SOYBEAN MEAL" .10)
+    (w.d1b 2  "MAR16" "WHEAT CBOT" .25)
+
+    (lc.d1b 3 "FEB16" "LIVE CATTLE" .025)
+    (lh.d1b 3 "FEB16" "LEAN HOGS" .025)
+
+;;;cash currencies
+    (aud.d3b 4 "CASH" "AUD-USD" .0001)
+    (brl.d3b 4 "CASH" "USD-BRL" .0001)
+    (gbp.d3b 4 "CASH" "GBP-USD" .0001)
+    (gbpusd.d3b 4 "CASH" "GBP-USD" .0001);;;EWI symbol
+    (cad.d3b 4 "CASH" "USD-CAD" .0001)
+    (eur.d3b 4 "CASH" "EUR-USD" .0001)
+    (jpy.d3b 2 "CASH" "USD-JPY" .01)
+    (chf.d3b 4 "CASH" "USD-CHF" .0001)
+    (mxn.d3b 4 "CASH" "USD-MXN" .0001)
+
+    (cny.d3b 4 "CASH" "USD-CNY" .0001)
+    (inr.d3b 4 "CASH" "USD-INR" .0025)
+    (rub.d3b 4 "CASH" "USD-RUB" .0001)
+
+    (chfjpy.d3b 2 "CASH" "CHF-JPY" .01)
+
+    (euraud.d3b 4 "CASH" "EUR-AUD" .0001)
+    (eurgbp.d3b 4 "CASH" "EUR-GBP" .0001)
+    (eurjpy.d3b 2 "CASH" "EUR-JPY" .01)
+    (eurchf.d3b 4 "CASH" "EUR-CHF" .0001)
+
+    (gbpjpy.d3b 2 "CASH " "GBP-JPY" .01)
+
+ ;;;;stocks
+    (aa.d3b 2 "CASH" "ALCOA" .01)
+    (aapl.d3b 2 "CASH" "APPLE" .01)
+    (adbe.d3b 2 "CASH" "ADOBE SYSTEMS" .01)
+    (amzn.d3b 2 "CASH" "AMAZON.COM" .01)
+    (bac.d3b 2 "CASH" "BANK OF AMERICA CORP" .01)
+
+    (brk_b.d3b 2 "CASH" "BERKSHIRE HATHAWAY B" .01)
+    (cvx.d3b 2 "CASH" "CHEVRON CORP" .01)
+    (dd.d3b 2 "CASH" "DUPONT CO" .01)
+    (dis.d3b 2 "CASH" "DISNEY" .01)
+    (fosl.d3b 2 "CASH" "FOSSIL" .01)
+
+    (gd.d3b 2 "CASH" "GENERAL DYNAMICS CORP" .01)
+    (ge.d3b 2 "CASH" "GENERAL ELECTRIC" .01)
+    (goog.d3b 2 "CASH" "GOOGLE" .01)
+    (ibm.d3b 2 "CASH" "IBM" .01)
+    (jnj.d3b 2 "CASH" "JOHNSON & JOHNSON" .01)
+
+    (jpm.d3b 2 "CASH" "J P MORGAN CHASE" .01)
+    (ko.d3b 2 "CASH" "COCA COLA CO" .01)
+    (mrk.d3b 2 "CASH" "MERCK" .01)
+    (msft.d3b 2 "CASH" "MICROSOFT CORP" .01)
+    (orcl.d3b 2 "CASH" "ORACLE" .01)
+
+    (pfe.d3b 2 "CASH" "PFIZER" .01)
+    (pg.d3b 2 "CASH" "PROCTOR & GAMBLE" .01)
+    (pot.d3b 2 "CASH" "POTASH" .01)
+    (slb.d3b 2 "CASH" "SHLUMBERGER" .01)
+    (spy.d3b 2 "CASH" "S&P 500 SPDR" .01)
+
+    (t.d3b 2 "CASH" "AT&T" .01)
+    (vz.d3b 2 "CASH" "VERIZON" .01)
+    (wfc.d3b 2 "CASH" "WELLS FARGO" .01)
+    (wmt.d3b 2 "CASH" "WAL-MART" .01)
+
+
+    ))
